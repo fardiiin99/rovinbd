@@ -259,6 +259,36 @@ async function ensureSchema() {
   )`;
   await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS return_fee numeric DEFAULT 100`;
   await seedIfEmpty();
+  await migrateStorefrontCatalog();
+}
+
+async function migrateStorefrontCatalog() {
+  await sql`CREATE TABLE IF NOT EXISTS app_migrations (
+    id text PRIMARY KEY, applied_at bigint NOT NULL
+  )`;
+
+  const migrationId = '2026-09-13-storefront-categories';
+  const { rows } = await sql`SELECT 1 FROM app_migrations WHERE id = ${migrationId} LIMIT 1`;
+  if (rows.length > 0) return;
+
+  await sql`UPDATE products SET price = 400`;
+  await sql`UPDATE products SET category = 'floral' WHERE name = 'Red Edge Polka'`;
+  await sql`UPDATE category_tiles SET label = 'Premium 70cm' WHERE kind = 'product' AND link = '/shop?cat=floral'`;
+  await sql`UPDATE category_tiles SET label = 'Premium 90cm' WHERE kind = 'product' AND link = '/shop?cat=solid'`;
+
+  await sql`INSERT INTO category_tiles (id, kind, label, sublabel, link, image, bg_color, "order")
+    SELECT 'ct_prod_durags', 'product', 'Durags', '', '/shop?cat=durags', '/durags-category.png', '#171717',
+      COALESCE(MAX("order"), 0) + 1
+    FROM category_tiles
+    WHERE NOT EXISTS (SELECT 1 FROM category_tiles WHERE kind = 'product' AND link = '/shop?cat=durags')`;
+  await sql`INSERT INTO category_tiles (id, kind, label, sublabel, link, image, bg_color, "order")
+    SELECT 'ct_prod_pant_chains', 'product', 'Pant chains', '', '/shop?cat=pant-chains', '/pant-chains-category.png', '#d6d3d1',
+      COALESCE(MAX("order"), 0) + 1
+    FROM category_tiles
+    WHERE NOT EXISTS (SELECT 1 FROM category_tiles WHERE kind = 'product' AND link = '/shop?cat=pant-chains')`;
+
+  await sql`INSERT INTO app_migrations (id, applied_at) VALUES (${migrationId}, ${Date.now()})
+    ON CONFLICT (id) DO NOTHING`;
 }
 
 async function seedIfEmpty() {

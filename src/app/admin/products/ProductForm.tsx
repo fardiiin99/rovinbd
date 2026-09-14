@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Product, ProductVariant } from '@/lib/db';
+import { uploadAdminImage } from '@/lib/uploadImage';
 import VariantsEditor from './VariantsEditor';
 
 type CategoryOption = { value: string; label: string };
@@ -36,13 +37,16 @@ export default function ProductForm({ product, categories = [] }: { product?: Pr
   const onFile = async (file: File) => {
     setPreview(URL.createObjectURL(file));
     setUploading(true);
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch('/api/admin/upload', { method: 'POST', body: fd });
-    const data = await res.json();
-    setUploading(false);
-    if (res.ok) { setForm((f) => ({ ...f, image: data.url })); setPending(true); }
-    else setError(data.error || 'Upload failed');
+    setError('');
+    try {
+      const url = await uploadAdminImage(file);
+      setForm((f) => ({ ...f, image: url }));
+      setPending(true);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const submit = async (e: React.FormEvent) => {

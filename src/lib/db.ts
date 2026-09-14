@@ -218,7 +218,14 @@ function rowToContent(r: any): SiteContent {
 let readyPromise: Promise<void> | null = null;
 
 function ready(): Promise<void> {
-  if (!readyPromise) readyPromise = ensureSchema();
+  // Production databases are provisioned already. Re-running every CREATE,
+  // ALTER, backfill, and seed query on each serverless cold start adds several
+  // seconds before the first storefront read can begin.
+  if (!readyPromise) {
+    readyPromise = process.env.NODE_ENV === 'production'
+      ? Promise.resolve()
+      : ensureSchema();
+  }
   return readyPromise;
 }
 

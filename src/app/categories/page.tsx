@@ -59,6 +59,8 @@ export default async function CategoriesPage() {
                     <img
                       src={tile?.image || '/placeholder.svg'}
                       alt={`${category.label} bandanas`}
+                      loading="lazy"
+                      decoding="async"
                       className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-black/5" />

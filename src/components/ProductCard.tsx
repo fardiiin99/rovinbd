@@ -7,7 +7,13 @@ export default function ProductCard({ product, categoryLabel }: { product: Produ
     <Link href={`/product/${product.slug}`} className="group block">
       <div className="card overflow-hidden">
         <div className="aspect-square bg-stone-100 overflow-hidden">
-          <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
+          <img
+            src={product.image}
+            alt={product.name}
+            loading="lazy"
+            decoding="async"
+            className="w-full h-full object-cover group-hover:scale-105 transition"
+          />
         </div>
         <div className="p-4">
           <div className="text-xs uppercase tracking-wider text-stone-500">{categoryLabel || product.category}</div>

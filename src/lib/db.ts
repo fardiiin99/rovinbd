@@ -128,6 +128,26 @@ function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+const READ_CACHE_TTL_MS = 30_000;
+const readCache = new Map<string, { expiresAt: number; value: Promise<unknown> }>();
+
+async function cachedRead<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const cached = readCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value as Promise<T>;
+  const value = load();
+  readCache.set(key, { expiresAt: Date.now() + READ_CACHE_TTL_MS, value });
+  try {
+    return await value;
+  } catch (error) {
+    readCache.delete(key);
+    throw error;
+  }
+}
+
+function invalidateStorefrontCache() {
+  readCache.clear();
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function rowToProduct(r: any): Product {
   let variants: ProductVariant[] = [];
@@ -344,14 +364,18 @@ async function seedIfEmpty() {
 export const db = {
   // products
   async listProducts(): Promise<Product[]> {
-    await ready();
-    const { rows } = await sql`SELECT * FROM products ORDER BY created_at DESC`;
-    return rows.map(rowToProduct);
+    return cachedRead('products', async () => {
+      await ready();
+      const { rows } = await sql`SELECT * FROM products ORDER BY created_at DESC`;
+      return rows.map(rowToProduct);
+    });
   },
   async featuredProducts(): Promise<Product[]> {
-    await ready();
-    const { rows } = await sql`SELECT * FROM products WHERE featured = true ORDER BY created_at DESC`;
-    return rows.map(rowToProduct);
+    return cachedRead('featured-products', async () => {
+      await ready();
+      const { rows } = await sql`SELECT * FROM products WHERE featured = true ORDER BY created_at DESC`;
+      return rows.map(rowToProduct);
+    });
   },
   async getProduct(id: string): Promise<Product | undefined> {
     await ready();
@@ -376,6 +400,7 @@ export const db = {
     const cost = input.cost || 0;
     await sql`INSERT INTO products (id, slug, name, description, price, cost, stock, image, category, featured, variants, variant_style, created_at)
       VALUES (${id}, ${slug}, ${input.name}, ${input.description}, ${input.price}, ${cost}, ${input.stock}, ${input.image}, ${input.category}, ${input.featured}, ${JSON.stringify(variants)}::jsonb, ${variantStyle}, ${createdAt})`;
+    invalidateStorefrontCache();
     return { ...input, cost, variants, variantStyle, slug, id, createdAt };
   },
   async updateProduct(id: string, patch: Partial<Product>): Promise<Product | undefined> {
@@ -385,11 +410,13 @@ export const db = {
     const p = { ...cur, ...patch, id };
     await sql`UPDATE products SET slug=${p.slug}, name=${p.name}, description=${p.description}, price=${p.price}, cost=${p.cost || 0},
       stock=${p.stock}, image=${p.image}, category=${p.category}, featured=${p.featured}, variants=${JSON.stringify(p.variants || [])}::jsonb, variant_style=${p.variantStyle || 'image'} WHERE id=${id}`;
+    invalidateStorefrontCache();
     return p;
   },
   async deleteProduct(id: string): Promise<boolean> {
     await ready();
     const { rowCount } = await sql`DELETE FROM products WHERE id = ${id}`;
+    invalidateStorefrontCache();
     return (rowCount ?? 0) > 0;
   },
   async setAllProductCosts(cost: number): Promise<number> {
@@ -581,9 +608,11 @@ export const db = {
 
   // category tiles
   async listCategoryTiles(): Promise<CategoryTile[]> {
-    await ready();
-    const { rows } = await sql`SELECT * FROM category_tiles ORDER BY "order" ASC`;
-    return rows.map(rowToTile);
+    return cachedRead('category-tiles', async () => {
+      await ready();
+      const { rows } = await sql`SELECT * FROM category_tiles ORDER BY "order" ASC`;
+      return rows.map(rowToTile);
+    });
   },
   // Category options derived from the homepage product tiles, so the product
   // form dropdown always matches the categories shown on the storefront.
@@ -612,6 +641,7 @@ export const db = {
     const t = { ...cur, ...patch, id };
     await sql`UPDATE category_tiles SET kind=${t.kind}, label=${t.label}, sublabel=${t.sublabel},
       link=${t.link}, image=${t.image}, bg_color=${t.bgColor}, "order"=${t.order} WHERE id=${id}`;
+    invalidateStorefrontCache();
     return t;
   },
   async createCategoryTile(tile: Omit<CategoryTile, 'id'>): Promise<CategoryTile> {
@@ -621,18 +651,22 @@ export const db = {
     const order = tile.order ?? (rows[0]?.next ?? 1);
     await sql`INSERT INTO category_tiles (id, kind, label, sublabel, link, image, bg_color, "order")
       VALUES (${id}, ${tile.kind}, ${tile.label}, ${tile.sublabel}, ${tile.link}, ${tile.image}, ${tile.bgColor}, ${order})`;
+    invalidateStorefrontCache();
     return { ...tile, id, order };
   },
   async deleteCategoryTile(id: string): Promise<void> {
     await ready();
     await sql`DELETE FROM category_tiles WHERE id = ${id}`;
+    invalidateStorefrontCache();
   },
 
   // content
   async getContent(): Promise<SiteContent> {
-    await ready();
-    const { rows } = await sql`SELECT * FROM site_content WHERE id = 1 LIMIT 1`;
-    return rowToContent(rows[0]);
+    return cachedRead('site-content', async () => {
+      await ready();
+      const { rows } = await sql`SELECT * FROM site_content WHERE id = 1 LIMIT 1`;
+      return rowToContent(rows[0]);
+    });
   },
   async updateContent(patch: Partial<SiteContent>): Promise<SiteContent> {
     await ready();
@@ -645,6 +679,7 @@ export const db = {
       hero_image=${c.heroImage}, hero_headline=${c.heroHeadline}, hero_subheadline=${c.heroSubheadline},
       hero_cta_text=${c.heroCtaText}, hero_cta_link=${c.heroCtaLink}, return_fee=${c.returnFee}
       WHERE id = 1`;
+    invalidateStorefrontCache();
     return c;
   },
 

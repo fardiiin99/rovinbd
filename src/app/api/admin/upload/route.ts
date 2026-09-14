@@ -1,6 +1,22 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSession } from '@/lib/auth';
+import { sql } from '@/lib/pg';
+import { randomUUID } from 'crypto';
+
+let imageTableReady: Promise<unknown> | null = null;
+
+function ensureImageTable() {
+  imageTableReady ??= sql.query(`
+    CREATE TABLE IF NOT EXISTS uploaded_images (
+      id UUID PRIMARY KEY,
+      content_type TEXT NOT NULL,
+      data BYTEA NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  return imageTableReady;
+}
 
 export async function POST(req: Request) {
   if (!(await getSession())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -15,12 +31,19 @@ export async function POST(req: Request) {
   const safeExt = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext) ? ext : 'png';
   const filename = `uploads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!,
-  );
-
   const arrayBuffer = await file.arrayBuffer();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    await ensureImageTable();
+    const id = randomUUID();
+    await sql`INSERT INTO uploaded_images (id, content_type, data) VALUES (${id}, ${file.type}, ${Buffer.from(arrayBuffer)})`;
+    console.log('[admin/upload] complete', { id, bytes: file.size, storage: 'postgres', durationMs: Date.now() - startedAt });
+    return NextResponse.json({ url: `/api/images/${id}` });
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
   console.log('[admin/upload] uploading', { filename, bytes: file.size });
   const { error } = await supabase.storage.from('images').upload(filename, arrayBuffer, {
     contentType: file.type,

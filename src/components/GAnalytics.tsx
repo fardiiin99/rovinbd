@@ -2,7 +2,7 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
 
 export default function GAnalytics() {
   const pathname = usePathname();

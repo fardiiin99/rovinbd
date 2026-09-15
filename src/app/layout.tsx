@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

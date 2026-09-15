@@ -4,6 +4,7 @@ import { sendCapiEvent, extractClientContext } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 import { notifyOrderPlaced } from '@/lib/notify';
 import { createPathaoOrder } from '@/lib/pathao';
+import { sendGA4Purchase, extractGA4ClientId } from '@/lib/ga4';
 
 export async function POST(req: Request) {
   try {
@@ -75,6 +76,21 @@ export async function POST(req: Request) {
     });
 
     await notifyOrderPlaced(order);
+
+    // GA4 Measurement Protocol — server-side purchase event
+    const gaCookie = req.headers.get('cookie')?.match(/_ga=([^;]+)/)?.[1];
+    sendGA4Purchase({
+      clientId: extractGA4ClientId(gaCookie),
+      transactionId: String(order.orderNumber),
+      value: total,
+      shipping,
+      items: items.map((i: { productId: string; name: string; price: number; qty: number }) => ({
+        item_id: i.productId,
+        item_name: i.name,
+        price: i.price,
+        quantity: i.qty,
+      })),
+    }).catch(console.error);
 
     // Create Pathao delivery order (best-effort — doesn't block the response, but
     // runs via after() so Vercel keeps the function alive until it settles)

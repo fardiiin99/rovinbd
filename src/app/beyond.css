@@ -1,6 +1,6 @@
-html:has(.beyond-home) { scroll-behavior: smooth; background: #000; }
-body:has(.beyond-home) { font-family: 'Inter', sans-serif; background: #000; overflow-x: hidden; }
-.beyond-home { background: #000; }
+html:has(.beyond-home) { scroll-behavior: smooth; }
+body:has(.beyond-home) { overflow-x: hidden; }
+.beyond-home { font-family: 'Inter', sans-serif; background: #000; }
 .beyond-hero {
   --progress: 0;
   --scale-factor: 0.5;

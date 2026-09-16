@@ -1,0 +1,29 @@
+html:has(.beyond-home) { scroll-behavior: smooth; background: #000; }
+body:has(.beyond-home) { font-family: 'Inter', sans-serif; background: #000; overflow-x: hidden; }
+.beyond-home { background: #000; }
+.beyond-hero {
+  --progress: 0;
+  --scale-factor: 0.5;
+  height: 120vh;
+  background: #EC612C;
+  /* Clip without creating a scroll container so the overlay remains sticky. */
+  overflow: clip;
+}
+.beyond-overlay { z-index: 5; }
+.beyond-title { font-family: 'Bamboly Demo', sans-serif; font-size: clamp(7.5rem, 30vw, 28rem); line-height: 0.85; letter-spacing: -0.025em; }
+.beyond-title-layer { position: absolute; inset: 0; }
+.beyond-title-blue { color: #89CFF0; transform: translateY(18px); }
+.beyond-title-orange { color: #EC612C; transform: translateY(12px); }
+.beyond-title-green { color: #90EE90; transform: translateY(6px); }
+.beyond-words { bottom: 8vh; }
+.beyond-word-column { opacity: calc(0.35 + var(--progress) * 0.65); }
+.beyond-word { font-family: 'Poppins', sans-serif; font-weight: 500; font-size: clamp(1.6rem, 7vw, 9rem); line-height: 1.1; transition: transform 0.05s linear; }
+.beyond-marquee-copy { font-family: 'Bamboly Demo', sans-serif; color: #EC612C; font-size: clamp(2.5rem, 6vw, 5rem); line-height: 1; padding-right: 0.25em; }
+@keyframes marquee-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.marquee-track { width: max-content; animation: marquee-scroll 18s linear infinite; }
+@media (min-width: 768px) {
+  .beyond-hero { --scale-factor: 1; }
+  .beyond-title-blue { transform: translateY(36px); }
+  .beyond-title-orange { transform: translateY(24px); }
+  .beyond-title-green { transform: translateY(12px); }
+}

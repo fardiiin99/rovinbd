@@ -1,0 +1,7 @@
+.env*
+.claude/
+.agents/
+.codex/
+tsconfig.tsbuildinfo
+public/images/rovin-character-original.png
+public/images/*.prompt.txt

@@ -1,4 +1,6 @@
 // Client-side Meta Pixel helper. Safe no-op if the pixel isn't loaded.
+import { HAS_META_PIXEL } from './pixel-config';
+
 type FbqParams = Record<string, unknown>;
 
 export function fbqTrack(event: string, params?: FbqParams, options?: { eventID?: string }) {
@@ -40,6 +42,9 @@ export function mirrorToCapi(
   userData?: ServerUserData,
 ) {
   if (typeof window === 'undefined') return;
+  // No pixel ID in this build means the server can't send the event either,
+  // so skip the request instead of POSTing on every page view.
+  if (!HAS_META_PIXEL) return;
   try {
     fetch('/api/pixel/track', {
       method: 'POST',

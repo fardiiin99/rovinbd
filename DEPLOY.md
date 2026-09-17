@@ -43,6 +43,17 @@ Project → **Settings → Environment Variables**, add (for Production + Previe
 | `GITHUB_TOKEN` | a GitHub Personal Access Token with "Contents: Read and write" on this repo |
 | `GITHUB_REPO` | `owner/repo`, e.g. `fardiiin99/rovinbd` |
 | `GITHUB_BRANCH` | `main` |
+| `NEXT_PUBLIC_GA_ID` | your GA4 measurement ID, e.g. `G-Y3XL9ENBXH` |
+| `NEXT_PUBLIC_META_PIXEL_ID` | your numeric Meta Pixel ID from Events Manager |
+| `META_CAPI_ACCESS_TOKEN` | Conversions API access token (optional, recommended) |
+
+> **The Meta Pixel does nothing until `NEXT_PUBLIC_META_PIXEL_ID` is set.**
+> With it missing, the pixel base code is not rendered at all and every event
+> (PageView, ViewContent, AddToCart, InitiateCheckout, Purchase) silently
+> no-ops. `NEXT_PUBLIC_*` vars are inlined at **build** time, so after adding
+> it you must **redeploy** — saving the env var alone changes nothing.
+> Verify a live deploy with `curl https://<your-domain>/api/pixel/track`,
+> which reports whether the ID and CAPI token made it into the build.
 
 ### 6. Deploy
 - Push to `main` (or click **Deploy**). First page load auto-creates the tables and seeds sample data.

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { sendCapiEvent, extractClientContext } from '@/lib/capi';
+import { sendCapiEvent, extractClientContext, capiConfigured } from '@/lib/capi';
+import { META_PIXEL_ID, HAS_META_PIXEL, META_PIXEL_ID_INVALID } from '@/lib/pixel-config';
 import { cityToDivision } from '@/lib/bd-divisions';
 
 type IncomingBody = {
@@ -65,4 +66,19 @@ export async function POST(req: Request) {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
+}
+
+// GET /api/pixel/track — config check for debugging a dead pixel.
+// Reports only whether things are configured; never echoes the access token.
+export async function GET() {
+  return NextResponse.json({
+    pixelId: HAS_META_PIXEL ? META_PIXEL_ID : null,
+    pixelIdConfigured: HAS_META_PIXEL,
+    pixelIdInvalid: META_PIXEL_ID_INVALID,
+    capiAccessTokenConfigured: Boolean(process.env.META_CAPI_ACCESS_TOKEN),
+    capiReady: capiConfigured(),
+    note: HAS_META_PIXEL
+      ? undefined
+      : 'NEXT_PUBLIC_META_PIXEL_ID is missing from this build. Set it in the hosting env vars and redeploy (NEXT_PUBLIC_* is inlined at build time).',
+  });
 }

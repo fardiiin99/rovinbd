@@ -1,6 +1,10 @@
 // GA4 Measurement Protocol — server-side event tracking
 
 const MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
+
+// Effective ID, exported so config reporting doesn't duplicate the fallback.
+export const GA4_MEASUREMENT_ID = MEASUREMENT_ID;
+export const GA4_MEASUREMENT_ID_FROM_FALLBACK = !process.env.NEXT_PUBLIC_GA_ID;
 const API_SECRET = process.env.GA4_API_SECRET || '';
 const ENDPOINT = `https://www.google-analytics.com/mp/collect`;
 

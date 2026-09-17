@@ -1,71 +1,113 @@
-# Deploying Rovin Bandana to Vercel
+# Deploying Rovin Bandana to Coolify
 
-This app uses **Supabase Postgres** (database) and commits uploaded images
-straight to this **GitHub repo** (`public/uploads/`), which Vercel auto-deploys
-on push. The local JSON file storage has been removed.
+This app is a long-running Next.js 15 server (not serverless). It needs a
+**Postgres** database and, optionally, **Supabase Storage** for admin image
+uploads. It is deployed from this Git repo using the committed `Dockerfile`.
 
 ## One-time setup
 
-### 1. Push the code to GitHub (recommended)
-```bash
-git init
-git add .
-git commit -m "Bandana store"
-# create an empty repo on github.com, then:
-git remote add origin https://github.com/<you>/rovin-bandana.git
-git branch -M main
-git push -u origin main
-```
+### 1. Create the application in Coolify
+- Coolify dashboard → your project → **+ New** → **Application**.
+- Source: **Public** or **Private Repository (GitHub App / Deploy Key)** →
+  point it at this repo, branch `main`.
+- **Build Pack: `Dockerfile`.** Do not leave it on Nixpacks — the repo ships a
+  multi-stage `Dockerfile` that builds `output: 'standalone'` and runs
+  `node server.js`.
+- Dockerfile location: `/Dockerfile` (the default).
 
-### 2. Import into Vercel
-- Go to https://vercel.com/new
-- Import the GitHub repo (or run `vercel` from this folder to link without GitHub).
+### 2. Ports and domain
+- **Port Exposes: `3000`** — the container listens on `3000` and binds
+  `0.0.0.0` (both are set in the `Dockerfile`).
+- Set your domain under **Domains**, e.g. `https://rovinbd.com`. Coolify
+  terminates TLS and reverse-proxies to the container, so no port is needed
+  in the URL.
+- Point the domain's DNS `A` record at the Coolify server's IP before saving,
+  so the certificate can be issued.
+- Healthcheck: `/` is fine. It renders from the database, so a failing
+  healthcheck usually means `POSTGRES_URL` is wrong rather than a bad build.
 
-### 3. Create the Supabase database
-- Go to https://supabase.com/dashboard → **New project**.
-- Once it's provisioned, go to **Project Settings → Database → Connection string**
-  and copy the **Connection pooling** URI (Transaction mode, port 6543) —
-  this is the one to use for serverless/Vercel deployments.
-- Add it to your Vercel project as the `POSTGRES_URL` env var (see step 5).
+### 3. Database
+Either use the existing Supabase Postgres, or run Postgres inside Coolify:
 
-### 4. Connect the Git repo (for image uploads to auto-deploy)
-- Project → **Settings → Git** → connect this same GitHub repo, if not already connected.
-- Without this, the upload route can still commit files to GitHub, but nothing will redeploy to publish them.
+**Supabase** — dashboard → **Project Settings → Database → Connection string**.
+Because this is a persistent server, the **direct connection (port 5432)** is
+the better choice; the pooler is only needed for serverless.
 
-### 5. Add the admin + GitHub env vars
-Project → **Settings → Environment Variables**, add (for Production + Preview):
+**Postgres in Coolify** — project → **+ New → Database → PostgreSQL**. Use its
+*internal* hostname in the connection string so traffic never leaves the host:
+`postgres://postgres:<password>@<service-name>:5432/postgres`.
+
+Tables and seed data are created automatically on first DB access
+(`ensureSchema` in `src/lib/db.ts`).
+
+### 4. Environment variables
+Application → **Environment Variables**. Copy the full list from
+[`.env.example`](.env.example), which documents every variable the code reads.
+The minimum to boot:
+
 | Name | Value |
 |------|-------|
 | `ADMIN_USERNAME` | your admin login |
 | `ADMIN_PASSWORD` | a strong password |
 | `AUTH_SECRET` | a long random string (32+ chars) |
-| `POSTGRES_URL` | the Supabase connection pooling URI from step 3 |
-| `GITHUB_TOKEN` | a GitHub Personal Access Token with "Contents: Read and write" on this repo |
-| `GITHUB_REPO` | `owner/repo`, e.g. `fardiiin99/rovinbd` |
-| `GITHUB_BRANCH` | `main` |
-| `NEXT_PUBLIC_GA_ID` | your GA4 measurement ID, e.g. `G-Y3XL9ENBXH` |
-| `NEXT_PUBLIC_META_PIXEL_ID` | your numeric Meta Pixel ID from Events Manager |
-| `META_CAPI_ACCESS_TOKEN` | Conversions API access token (optional, recommended) |
+| `POSTGRES_URL` | the connection string from step 3 |
+
+Then the integrations you actually use: `NEXT_PUBLIC_GA_ID`,
+`NEXT_PUBLIC_META_PIXEL_ID`, `META_CAPI_ACCESS_TOKEN`, `GA4_API_SECRET`,
+`ALPHA_SMS_API_KEY`, `PATHAO_*`, `TELEGRAM_*`,
+`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.
+
+> **`NEXT_PUBLIC_*` variables are inlined at build time, not read at runtime.**
+> In Coolify tick **Build Variable** on each of them
+> (`NEXT_PUBLIC_META_PIXEL_ID`, `NEXT_PUBLIC_GA_ID`,
+> `NEXT_PUBLIC_SUPABASE_URL`) and **redeploy** after changing one. A runtime-only
+> value reaches the server but never reaches the browser bundle, so the tag
+> stays dead with no error anywhere.
 
 > **The Meta Pixel does nothing until `NEXT_PUBLIC_META_PIXEL_ID` is set.**
-> With it missing, the pixel base code is not rendered at all and every event
+> With it missing the pixel base code is not rendered at all and every event
 > (PageView, ViewContent, AddToCart, InitiateCheckout, Purchase) silently
-> no-ops. `NEXT_PUBLIC_*` vars are inlined at **build** time, so after adding
-> it you must **redeploy** — saving the env var alone changes nothing.
-> Verify a live deploy with `curl https://<your-domain>/api/pixel/track`,
-> which reports whether the ID and CAPI token made it into the build.
+> no-ops. Verify a running deploy with
+> `curl https://<your-domain>/api/pixel/track`, which reports whether the ID
+> and the CAPI token made it into the build.
+
+### 5. Image uploads (persistence)
+Admin uploads are **not** written to the container filesystem for production
+use — a container rebuild would wipe them. The upload route
+(`src/app/api/admin/upload/route.ts`) picks its target automatically:
+
+- `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_KEY` set → **Supabase
+  Storage**, bucket `images` (create it and make it public). Recommended.
+- Either missing → falls back to storing bytes in Postgres
+  (`uploaded_images` table), served from `/api/images/<id>`. This works and
+  survives redeploys, but grows the database.
+
+If you would rather keep uploads on the Coolify host, add a **Persistent
+Storage** volume mounted at `/app/public/uploads` — but the Supabase Storage
+path needs no volume at all.
 
 ### 6. Deploy
-- Push to `main` (or click **Deploy**). First page load auto-creates the tables and seeds sample data.
+Click **Deploy**. Enable **Auto Deploy** (webhook on push to `main`) if you
+want each push to redeploy.
 
-## Local development against the cloud DB
-Copy `.env.example` to `.env.local` and fill in `POSTGRES_URL` (Supabase connection
-pooling URI), `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `AUTH_SECRET`, then:
+## Local development
+
 ```bash
+cp .env.example .env.local   # fill in POSTGRES_URL, ADMIN_*, AUTH_SECRET
+npm install
 npm run dev
 ```
 
+To test the production image exactly as Coolify builds it:
+
+```bash
+docker build -t rovin --build-arg NEXT_PUBLIC_META_PIXEL_ID=<id> .
+docker run --rm -p 3000:3000 --env-file .env.local rovin
+```
+
 ## Notes
-- The hero image at `/public/hero-banner.jpg` ships with the repo. New admin uploads are committed to `public/uploads/` in this GitHub repo via the API and return a `/uploads/...` path; the change goes live once Vercel's Git-triggered deploy finishes (~1-2 min).
-- Tables + seed data are created automatically on first DB access (`ensureSchema` in `src/lib/db.ts`).
-- To reset the store, drop the tables in the Supabase **Table Editor** (or via SQL Editor); they'll be recreated and reseeded on next load.
+- The hero image (`/public/hero-banner.jpg`) and the CTA background
+  (`/public/cta-background.jpg`) ship with the repo and are served by the app
+  itself — no external asset host is involved.
+- To reset the store, drop the tables in your Postgres client; they are
+  recreated and reseeded on the next page load.

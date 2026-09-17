@@ -93,7 +93,7 @@ export async function POST(req: Request) {
     }).catch(console.error);
 
     // Create Pathao delivery order (best-effort — doesn't block the response, but
-    // runs via after() so Vercel keeps the function alive until it settles)
+    // runs via after() so the request isn't torn down until it settles)
     after(async () => {
       try {
         const result = await createPathaoOrder({

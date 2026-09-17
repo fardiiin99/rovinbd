@@ -1,8 +1,9 @@
 // Single source of truth for the Meta Pixel ID.
 //
 // IMPORTANT: NEXT_PUBLIC_* values are inlined at BUILD time, not read at
-// runtime. Adding NEXT_PUBLIC_META_PIXEL_ID in Vercel therefore does nothing
-// until the project is redeployed.
+// runtime. In Coolify the variable must therefore be marked as a build
+// variable and the app redeployed — setting it as a runtime-only env var, or
+// setting it without redeploying, leaves the pixel disabled.
 const RAW_PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
 
 // Meta pixel IDs are all digits. Trim and strip stray quotes so a value pasted

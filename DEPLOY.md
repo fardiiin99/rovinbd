@@ -91,6 +91,24 @@ path needs no volume at all.
 Click **Deploy**. Enable **Auto Deploy** (webhook on push to `main`) if you
 want each push to redeploy.
 
+### 7. Check what the deploy actually got
+Every integration in this app degrades silently when its credentials are
+missing: an order still saves, but the Pathao consignment, the confirmation
+SMS and the Telegram alert simply don't happen, and nothing surfaces it. After
+a migration, or any time an integration seems dead, log in to `/admin` and
+open:
+
+    /api/admin/config
+
+It lists exactly which environment variables this running deploy is missing,
+plus warnings worth acting on (database unreachable, `AUTH_SECRET` still the
+hardcoded dev fallback, CAPI stuck in Test Events mode, uploads falling back
+to Postgres). It reports presence only and never returns a secret's value.
+
+It is admin-only on purpose — it answers whether `AUTH_SECRET` is still the
+dev fallback, which anonymous callers must not be able to ask. Use it in the
+browser while signed in to the admin panel.
+
 ## Local development
 
 ```bash

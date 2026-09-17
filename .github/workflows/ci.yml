@@ -1,0 +1,65 @@
+name: CI
+
+# Restores the build gate this repo lost when the Vercel project (its only
+# check) was deleted. Without this, nothing catches a type error or a broken
+# build before Coolify tries to deploy the commit.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes an in-flight run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the node:22-alpine base image in the Dockerfile.
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # No env vars are set on purpose: every page is force-dynamic and the
+      # analytics IDs have built-in fallbacks, so a correct build must not
+      # need secrets. If this step ever starts needing one, that is the bug.
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds the same image Coolify builds, so a broken Dockerfile fails
+      # here rather than halfway through a deploy.
+      - name: Build image
+        run: docker build -t rovinbd:ci .
+
+      - name: Check the standalone server starts
+        run: |
+          docker run -d --name rovinbd-ci -p 3000:3000 rovinbd:ci
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/pixel/track || true)
+            if [ "$code" = "200" ]; then echo "container healthy"; exit 0; fi
+            sleep 2
+          done
+          echo "container did not become healthy; logs:"
+          docker logs rovinbd-ci
+          exit 1

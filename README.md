@@ -1,6 +1,6 @@
 # Rovin Bandana
 
-E-commerce site + admin panel for a bandana business. Built with Next.js 15, React 19, Tailwind, and a JSON-file database (no native deps, no external services).
+E-commerce site + admin panel for a bandana business. Built with Next.js 15, React 19, Tailwind and Postgres. Self-hosted with Docker on Coolify — see [DEPLOY.md](DEPLOY.md).
 
 ## Quick start
 
@@ -43,13 +43,15 @@ AUTH_SECRET=replace-this-with-a-long-random-string
 
 ## Data storage
 
-All data lives in `data/db.json` — products, orders, customers, banners, site content. Uploaded images go to `public/uploads/`. Both are gitignored.
+All data lives in **Postgres** — products, orders, customers, banners, site content. Set `POSTGRES_URL` (see `.env.example`); the tables and seed data are created automatically on first access by `ensureSchema` in `src/lib/db.ts`.
 
-To reset to seed data, delete `data/db.json` and restart the server.
+Admin image uploads go to Supabase Storage when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are set, and otherwise fall back to a Postgres table served from `/api/images/<id>`. Either way they survive a redeploy, so no host volume is required.
 
-## Going to production later
+To reset the store, drop the tables in your Postgres client — they are recreated and reseeded on the next page load.
 
-When you're ready to deploy, the JSON file approach won't survive on serverless platforms. Swap `src/lib/db.ts` for a real database (Postgres, SQLite, etc.) — the rest of the app uses the `db` API and won't need changes.
+## Deployment
+
+Deployed from this repo to **Coolify** using the committed `Dockerfile` (`output: 'standalone'`, listening on port 3000). Full setup — build pack, ports, database, environment variables, image storage — is in [DEPLOY.md](DEPLOY.md).
 
 ## File layout
 
@@ -67,10 +69,10 @@ src/
     api/                     Server routes
   components/                Shared UI
   lib/
-    db.ts                    JSON-backed data layer
+    db.ts                    Postgres-backed data layer
     auth.ts                  JWT session helpers
     format.ts                Price + date helpers
   middleware.ts              Protects /admin
-data/db.json                 Persisted store data (created on first run)
-public/uploads/              Uploaded product/banner images
+Dockerfile                   Production image built by Coolify
+public/uploads/              Legacy local upload dir (uploads now go to Supabase Storage / Postgres)
 ```

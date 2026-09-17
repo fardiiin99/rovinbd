@@ -1,12 +1,9 @@
 node_modules
 .next
-.vercel
 /data
 .env*.local
 *.db
 *.db-journal
 public/uploads/*
 !public/uploads/.gitkeep
-
-.vercel
-.env*.local
+tsconfig.tsbuildinfo

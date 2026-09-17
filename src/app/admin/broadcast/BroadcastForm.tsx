@@ -62,7 +62,7 @@ export default function BroadcastForm({ customers, smsReady }: { customers: Cust
 
       {!smsReady && (
         <div className="card p-4 bg-amber-50 border border-amber-200 text-amber-900 text-sm">
-          SMS not configured. Set <code>ALPHA_SMS_API_KEY</code> in Vercel env vars before sending.
+          SMS not configured. Set <code>ALPHA_SMS_API_KEY</code> in the server environment before sending.
         </div>
       )}
 

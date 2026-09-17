@@ -50,7 +50,7 @@ export default async function Home() {
 
         <section className="relative bg-stone-900 text-white overflow-hidden">
           <img
-            src="https://vf4esyy7o5nz5zo3.public.blob.vercel-storage.com/uploads/1781033272527-vl7m14.jpg"
+            src="/cta-background.jpg"
             alt=""
             aria-hidden="true"
             className="absolute inset-0 w-full h-full object-cover opacity-20"

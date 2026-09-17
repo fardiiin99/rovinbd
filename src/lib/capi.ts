@@ -1,6 +1,7 @@
 import { sha256, normalizePhoneBD } from './hash';
+import { META_PIXEL_ID } from './pixel-config';
 
-const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID || '';
+const PIXEL_ID = META_PIXEL_ID;
 const ACCESS_TOKEN = process.env.META_CAPI_ACCESS_TOKEN || '';
 const TEST_EVENT_CODE = process.env.META_CAPI_TEST_CODE || '';
 const API_VERSION = 'v21.0';
@@ -28,8 +29,24 @@ type CapiEvent = {
   customData?: Record<string, unknown>;
 };
 
+export function capiConfigured(): boolean {
+  return Boolean(PIXEL_ID && ACCESS_TOKEN);
+}
+
+// Warn once per server process rather than on every event, so a missing
+// config is visible in the logs without drowning them.
+let warnedMissingConfig = false;
+
 export async function sendCapiEvent(event: CapiEvent): Promise<void> {
-  if (!PIXEL_ID || !ACCESS_TOKEN) return;
+  if (!PIXEL_ID || !ACCESS_TOKEN) {
+    if (!warnedMissingConfig) {
+      warnedMissingConfig = true;
+      console.warn(
+        `CAPI events are disabled: missing ${!PIXEL_ID ? 'NEXT_PUBLIC_META_PIXEL_ID' : 'META_CAPI_ACCESS_TOKEN'}. Skipping "${event.eventName}" and any further events.`,
+      );
+    }
+    return;
+  }
 
   const ud: Record<string, string | string[]> = {};
   if (event.userData.email) ud.em = sha256(event.userData.email);

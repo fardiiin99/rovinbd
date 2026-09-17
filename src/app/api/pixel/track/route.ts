@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { sendCapiEvent, extractClientContext, capiConfigured } from '@/lib/capi';
-import { META_PIXEL_ID, HAS_META_PIXEL, META_PIXEL_ID_INVALID } from '@/lib/pixel-config';
+import {
+  META_PIXEL_ID,
+  HAS_META_PIXEL,
+  META_PIXEL_ID_INVALID,
+  META_PIXEL_ID_FROM_FALLBACK,
+} from '@/lib/pixel-config';
 import { cityToDivision } from '@/lib/bd-divisions';
 
 type IncomingBody = {
@@ -74,11 +79,12 @@ export async function GET() {
   return NextResponse.json({
     pixelId: HAS_META_PIXEL ? META_PIXEL_ID : null,
     pixelIdConfigured: HAS_META_PIXEL,
-    pixelIdInvalid: META_PIXEL_ID_INVALID,
+    pixelIdSource: META_PIXEL_ID_FROM_FALLBACK ? 'built-in' : 'env',
+    envOverrideInvalid: META_PIXEL_ID_INVALID,
     capiAccessTokenConfigured: Boolean(process.env.META_CAPI_ACCESS_TOKEN),
     capiReady: capiConfigured(),
-    note: HAS_META_PIXEL
-      ? undefined
-      : 'NEXT_PUBLIC_META_PIXEL_ID is missing from this build. Set it in the hosting env vars and redeploy (NEXT_PUBLIC_* is inlined at build time).',
+    note: META_PIXEL_ID_INVALID
+      ? 'NEXT_PUBLIC_META_PIXEL_ID is set but is not a valid numeric pixel ID; it was ignored in favour of the built-in ID.'
+      : undefined,
   });
 }

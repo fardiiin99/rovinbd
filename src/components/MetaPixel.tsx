@@ -12,16 +12,14 @@ export default function MetaPixel() {
   // event deduplicate. The inline base code only runs fbq('init') — it no
   // longer auto-fires PageView, so there's no double counting.
   useEffect(() => {
-    if (!HAS_META_PIXEL) {
-      // Make this silent failure visible: without the ID the base code is
-      // never rendered, so PageView/AddToCart/Purchase all quietly no-op.
+    if (META_PIXEL_ID_INVALID) {
+      // The override is unusable, so the hardcoded ID is in play. Surface it —
+      // otherwise a typo'd env var silently sends events to the wrong place.
       console.warn(
-        META_PIXEL_ID_INVALID
-          ? '[MetaPixel] NEXT_PUBLIC_META_PIXEL_ID is set but is not a valid numeric pixel ID — pixel disabled.'
-          : '[MetaPixel] NEXT_PUBLIC_META_PIXEL_ID is not set in this build — pixel disabled. Set it in the hosting env vars and redeploy.',
+        '[MetaPixel] NEXT_PUBLIC_META_PIXEL_ID is set but is not a valid numeric pixel ID — ignoring it and using the built-in pixel ID.',
       );
-      return;
     }
+    if (!HAS_META_PIXEL) return;
     const eventId = newEventId('pv');
     fbqTrack('PageView', undefined, { eventID: eventId });
     mirrorToCapi('PageView', eventId);

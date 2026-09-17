@@ -58,18 +58,19 @@ Then the integrations you actually use: `NEXT_PUBLIC_GA_ID`,
 `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.
 
 > **`NEXT_PUBLIC_*` variables are inlined at build time, not read at runtime.**
-> In Coolify tick **Build Variable** on each of them
-> (`NEXT_PUBLIC_META_PIXEL_ID`, `NEXT_PUBLIC_GA_ID`,
-> `NEXT_PUBLIC_SUPABASE_URL`) and **redeploy** after changing one. A runtime-only
-> value reaches the server but never reaches the browser bundle, so the tag
-> stays dead with no error anywhere.
+> In Coolify tick **Build Variable** on any you set (`NEXT_PUBLIC_GA_ID`,
+> `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_META_PIXEL_ID`) and **redeploy**
+> after changing one. A runtime-only value reaches the server but never
+> reaches the browser bundle, so the tag stays dead with no error anywhere.
 
-> **The Meta Pixel does nothing until `NEXT_PUBLIC_META_PIXEL_ID` is set.**
-> With it missing the pixel base code is not rendered at all and every event
-> (PageView, ViewContent, AddToCart, InitiateCheckout, Purchase) silently
-> no-ops. Verify a running deploy with
-> `curl https://<your-domain>/api/pixel/track`, which reports whether the ID
-> and the CAPI token made it into the build.
+> **The Meta Pixel needs no env var.** The production pixel ID is hardcoded in
+> `src/lib/pixel-config.ts`, the same way the GA ID is, because a missing
+> variable previously disabled the pixel site-wide with no error anywhere. Set
+> `NEXT_PUBLIC_META_PIXEL_ID` only to override it with a staging or test pixel.
+> Verify what a running deploy uses with
+> `curl https://<your-domain>/api/pixel/track`, which reports the active ID,
+> whether it came from the env or the built-in default, and whether the CAPI
+> token made it into the build.
 
 ### 5. Image uploads (persistence)
 Admin uploads are **not** written to the container filesystem for production

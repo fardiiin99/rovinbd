@@ -42,8 +42,9 @@ export function mirrorToCapi(
   userData?: ServerUserData,
 ) {
   if (typeof window === 'undefined') return;
-  // No pixel ID in this build means the server can't send the event either,
-  // so skip the request instead of POSTing on every page view.
+  // A build with no pixel ID at all can't have the server send the event
+  // either, so skip the request. With the ID hardcoded this is normally true,
+  // and the POST is a no-op server-side until META_CAPI_ACCESS_TOKEN is set.
   if (!HAS_META_PIXEL) return;
   try {
     fetch('/api/pixel/track', {

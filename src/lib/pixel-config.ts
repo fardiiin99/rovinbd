@@ -5,7 +5,7 @@
 // anywhere. A pixel ID is not a secret — it ships in the page's HTML on every
 // request — so there is nothing to protect by keeping it out of the repo. The
 // Conversions API access token IS a secret and stays in the environment.
-const FALLBACK_PIXEL_ID = '1278023470767983';
+const FALLBACK_PIXEL_ID = '29001679549521002';
 
 // NEXT_PUBLIC_META_PIXEL_ID is optional now: set it only to point a build at a
 // different pixel (a staging or test pixel). NEXT_PUBLIC_* values are inlined

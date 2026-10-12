@@ -18,14 +18,16 @@ export type OrderRow = {
 };
 
 type SendResult = { id: string; orderNumber?: number; ok: boolean; consignmentId?: string; error?: string; skipped?: boolean };
+type Action = 'pathao' | 'sms';
 
 export default function OrdersTable({ orders }: { orders: OrderRow[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sending, setSending] = useState(false);
-  const [results, setResults] = useState<SendResult[] | null>(null);
+  const [sending, setSending] = useState<Action | null>(null);
+  const [results, setResults] = useState<{ action: Action; rows: SendResult[] } | null>(null);
   const [error, setError] = useState('');
 
+  // "Select all" only grabs orders not yet booked with Pathao, so it can't mass-SMS old customers.
   const sendable = orders.filter((o) => !o.pathaoConsignmentId);
   const allSelected = sendable.length > 0 && sendable.every((o) => selected.has(o.id));
 
@@ -42,44 +44,58 @@ export default function OrdersTable({ orders }: { orders: OrderRow[] }) {
     setSelected(allSelected ? new Set() : new Set(sendable.map((o) => o.id)));
   }
 
-  async function send() {
+  async function send(action: Action) {
     if (selected.size === 0) return;
-    if (!confirm(`Send ${selected.size} order(s) to Pathao? A pickup will be created for each.`)) return;
-    setSending(true);
+    const prompt =
+      action === 'pathao'
+        ? `Send ${selected.size} order(s) to Pathao? A pickup will be created for each. Orders already booked are skipped.`
+        : `Send the order confirmation SMS to ${selected.size} customer(s)?`;
+    if (!confirm(prompt)) return;
+    setSending(action);
     setError('');
     setResults(null);
     try {
-      const res = await fetch('/api/admin/orders/send-pathao', {
+      const res = await fetch(`/api/admin/orders/${action === 'pathao' ? 'send-pathao' : 'send-sms'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [...selected] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setResults(data.results);
+      setResults({ action, rows: data.results });
       setSelected(new Set());
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setSending(false);
+      setSending(null);
     }
   }
 
-  const failed = results?.filter((r) => !r.ok) ?? [];
-  const sent = results?.filter((r) => r.ok && !r.skipped) ?? [];
+  const rows = results?.rows ?? [];
+  const failed = rows.filter((r) => !r.ok);
+  const sent = rows.filter((r) => r.ok && !r.skipped);
+  const skipped = rows.filter((r) => r.skipped);
+  const count = selected.size ? ` (${selected.size})` : '';
 
   return (
     <>
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
-          onClick={send}
-          disabled={selected.size === 0 || sending}
+          onClick={() => send('pathao')}
+          disabled={selected.size === 0 || sending !== null}
           className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {sending ? 'Sending to Pathao…' : `Send to Pathao${selected.size ? ` (${selected.size})` : ''}`}
+          {sending === 'pathao' ? 'Sending to Pathao…' : `Send to Pathao${count}`}
         </button>
-        <span className="text-sm text-stone-500">Orders already sent to Pathao can&apos;t be selected.</span>
+        <button
+          onClick={() => send('sms')}
+          disabled={selected.size === 0 || sending !== null}
+          className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {sending === 'sms' ? 'Sending SMS…' : `Send SMS${count}`}
+        </button>
+        <span className="text-sm text-stone-500">Select all picks only orders not yet sent to Pathao.</span>
       </div>
 
       {error && <div className="mt-3 rounded bg-red-50 text-red-700 text-sm px-4 py-2">{error}</div>}
@@ -87,8 +103,13 @@ export default function OrdersTable({ orders }: { orders: OrderRow[] }) {
         <div className="mt-3 rounded bg-stone-50 text-sm px-4 py-3 space-y-1">
           {sent.length > 0 && (
             <div className="text-green-700">
-              Sent {sent.length}: {sent.map((r) => `#${r.orderNumber} → ${r.consignmentId}`).join(', ')}
+              {results.action === 'pathao'
+                ? `Sent to Pathao ${sent.length}: ${sent.map((r) => `#${r.orderNumber} → ${r.consignmentId}`).join(', ')}`
+                : `SMS sent ${sent.length}: ${sent.map((r) => `#${r.orderNumber}`).join(', ')}`}
             </div>
+          )}
+          {skipped.length > 0 && (
+            <div className="text-stone-600">Already in Pathao, skipped: {skipped.map((r) => `#${r.orderNumber}`).join(', ')}</div>
           )}
           {failed.map((r) => (
             <div key={r.id} className="text-red-700">
@@ -122,7 +143,6 @@ export default function OrdersTable({ orders }: { orders: OrderRow[] }) {
                   <input
                     type="checkbox"
                     checked={selected.has(o.id)}
-                    disabled={!!o.pathaoConsignmentId}
                     onChange={() => toggle(o.id)}
                     aria-label={`Select order ${o.orderNumber}`}
                   />

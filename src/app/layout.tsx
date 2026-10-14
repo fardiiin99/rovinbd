@@ -13,6 +13,8 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
+// Second GA4 property; gtag('event') calls go to every configured ID.
+const GA_ID_2 = 'G-D4HCL53NRW';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -38,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <script async src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} />
             <script
               dangerouslySetInnerHTML={{
-                __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{send_page_view:true});`,
+                __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{send_page_view:true});gtag('config','${GA_ID_2}',{send_page_view:true});`,
               }}
             />
           </>

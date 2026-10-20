@@ -21,6 +21,8 @@ export default function ProductForm({ product, categories = [] }: { product?: Pr
     variantStyle: (product?.variantStyle ?? 'image') as 'image' | 'size',
   });
   const [variants, setVariants] = useState<ProductVariant[]>(product?.variants || []);
+  const [images, setImages] = useState<string[]>(product?.images || []);
+  const [galleryUploading, setGalleryUploading] = useState(0);
 
   // Ensure the product's current category is always selectable, even if it's
   // no longer one of the configured tiles.
@@ -49,6 +51,32 @@ export default function ProductForm({ product, categories = [] }: { product?: Pr
     }
   };
 
+  const onGalleryFiles = async (files: FileList) => {
+    setError('');
+    const list = Array.from(files);
+    setGalleryUploading((n) => n + list.length);
+    for (const file of list) {
+      try {
+        const url = await uploadAdminImage(file);
+        setImages((prev) => [...prev, url]);
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : 'Upload failed');
+      } finally {
+        setGalleryUploading((n) => n - 1);
+      }
+    }
+  };
+
+  const moveImage = (i: number, dir: -1 | 1) => {
+    setImages((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true); setError('');
@@ -57,7 +85,7 @@ export default function ProductForm({ product, categories = [] }: { product?: Pr
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, price: Number(form.price), cost: Number(form.cost), stock: Number(form.stock), variants }),
+      body: JSON.stringify({ ...form, price: Number(form.price), cost: Number(form.cost), stock: Number(form.stock), variants, images }),
     });
     if (res.ok) {
       router.push('/admin/products');
@@ -116,6 +144,27 @@ export default function ProductForm({ product, categories = [] }: { product?: Pr
               <div className="text-xs text-stone-500 mt-1">Or paste URL:</div>
               <input className="input mt-1" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} />
             </div>
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">
+            Extra photos <span className="text-xs text-stone-500 font-normal">(shown after the main image on the product page)</span>
+          </label>
+          <div className="flex flex-wrap gap-3">
+            {images.map((src, i) => (
+              <div key={`${src}-${i}`} className="relative w-24">
+                <img src={src} alt="" className="w-24 h-24 object-cover rounded border border-stone-200" />
+                <div className="flex justify-between mt-1 text-xs">
+                  <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} className="px-1 text-stone-600 disabled:opacity-30" aria-label="Move left">←</button>
+                  <button type="button" onClick={() => setImages((prev) => prev.filter((_, k) => k !== i))} className="px-1 text-red-600" aria-label="Remove photo">Remove</button>
+                  <button type="button" onClick={() => moveImage(i, 1)} disabled={i === images.length - 1} className="px-1 text-stone-600 disabled:opacity-30" aria-label="Move right">→</button>
+                </div>
+              </div>
+            ))}
+            <label className="w-24 h-24 rounded border-2 border-dashed border-stone-300 flex items-center justify-center text-xs text-stone-500 cursor-pointer hover:border-stone-500 text-center px-1">
+              {galleryUploading > 0 ? `Uploading ${galleryUploading}…` : '+ Add photos'}
+              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) onGalleryFiles(e.target.files); e.target.value = ''; }} />
+            </label>
           </div>
         </div>
       </div>

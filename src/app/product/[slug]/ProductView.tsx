@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import type { Product, ProductVariant } from '@/lib/db';
 import { formatPrice } from '@/lib/format';
@@ -17,9 +17,17 @@ export default function ProductView({
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const hasVariants = product.variants.length > 0;
 
-  const displayImage = product.variantStyle === 'size'
-    ? product.image
-    : (selectedVariant?.image || product.image);
+  const gallery = [product.image, ...(product.images || [])];
+  const [activeImage, setActiveImage] = useState<string | null>(null);
+  const variantImage = product.variantStyle === 'size' ? null : selectedVariant?.image;
+
+  // Stable identity: AddToCartButton lists this in an effect's deps, so a fresh
+  // function each render would re-fire it and wipe the chosen thumbnail.
+  const selectVariant = useCallback((v: ProductVariant | null) => {
+    setSelectedVariant(v);
+    setActiveImage(null);
+  }, []);
+  const displayImage = activeImage || variantImage || product.image;
   const displayStock = hasVariants
     ? (selectedVariant ? selectedVariant.stock : product.variants.reduce((s, v) => s + v.stock, 0))
     : product.stock;
@@ -27,8 +35,27 @@ export default function ProductView({
 
   return (
     <div className="grid md:grid-cols-2 gap-10">
-      <div className="aspect-square rounded-xl overflow-hidden bg-stone-100">
-        <img src={displayImage} alt={product.name} className="w-full h-full object-cover" />
+      <div>
+        <div className="aspect-square rounded-xl overflow-hidden bg-stone-100">
+          <img src={displayImage} alt={product.name} className="w-full h-full object-cover" />
+        </div>
+        {gallery.length > 1 && (
+          <div className="mt-3 grid grid-cols-5 gap-2">
+            {gallery.map((src, i) => (
+              <button
+                key={`${src}-${i}`}
+                type="button"
+                onClick={() => setActiveImage(src)}
+                className={`aspect-square rounded-md overflow-hidden border-2 transition ${
+                  src === displayImage ? 'border-brand-600' : 'border-stone-200 hover:border-stone-400'
+                }`}
+                aria-label={`Show photo ${i + 1}`}
+              >
+                <img src={src} alt="" className="w-full h-full object-cover" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div>
         <div className="text-xs uppercase tracking-wider text-stone-500">{categoryLabel}</div>
@@ -78,7 +105,7 @@ export default function ProductView({
           </div>
         )}
         <div className="mt-6">
-          <AddToCartButton product={product} onVariantSelect={setSelectedVariant} />
+          <AddToCartButton product={product} onVariantSelect={selectVariant} />
         </div>
       </div>
     </div>

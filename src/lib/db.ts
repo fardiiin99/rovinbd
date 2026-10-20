@@ -20,6 +20,7 @@ export type Product = {
   featured: boolean;
   variants: ProductVariant[];
   variantStyle?: 'image' | 'size';
+  images?: string[]; // extra gallery photos, shown after `image`
   createdAt: number;
 };
 
@@ -162,8 +163,21 @@ function rowToProduct(r: any): Product {
     price: Number(r.price), cost: Number(r.cost) || 0, stock: Number(r.stock), image: r.image,
     category: r.category, featured: !!r.featured, variants,
     variantStyle: (r.variant_style as 'image' | 'size') || 'image',
+    images: parseStringArray(r.images),
     createdAt: Number(r.created_at),
   };
+}
+export function sanitizeImages(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((u): u is string => typeof u === 'string' && /^(\/|https:\/\/)/.test(u)).slice(0, 12);
+}
+function parseStringArray(v: any): string[] {
+  try {
+    const raw = typeof v === 'string' ? JSON.parse(v) : v;
+    return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string' && x) : [];
+  } catch {
+    return [];
+  }
 }
 function rowToCustomer(r: any): Customer {
   return {
@@ -222,8 +236,9 @@ function ready(): Promise<void> {
   // ALTER, backfill, and seed query on each serverless cold start adds several
   // seconds before the first storefront read can begin.
   if (!readyPromise) {
+    // The one exception is cheap, idempotent column adds that new code depends on.
     readyPromise = process.env.NODE_ENV === 'production'
-      ? Promise.resolve()
+      ? ensureProductImagesColumn().catch((err) => console.error('[db] images column check failed', err))
       : ensureSchema();
   }
   return readyPromise;
@@ -285,8 +300,13 @@ async function ensureSchema() {
     hero_image text, hero_headline text, hero_subheadline text, hero_cta_text text, hero_cta_link text
   )`;
   await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS return_fee numeric DEFAULT 100`;
+  await ensureProductImagesColumn();
   await seedIfEmpty();
   await migrateStorefrontCatalog();
+}
+
+async function ensureProductImagesColumn() {
+  await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS images jsonb DEFAULT '[]'::jsonb`;
 }
 
 async function migrateStorefrontCatalog() {
@@ -405,10 +425,11 @@ export const db = {
     const variants = input.variants || [];
     const variantStyle = input.variantStyle || 'image';
     const cost = input.cost || 0;
-    await sql`INSERT INTO products (id, slug, name, description, price, cost, stock, image, category, featured, variants, variant_style, created_at)
-      VALUES (${id}, ${slug}, ${input.name}, ${input.description}, ${input.price}, ${cost}, ${input.stock}, ${input.image}, ${input.category}, ${input.featured}, ${JSON.stringify(variants)}::jsonb, ${variantStyle}, ${createdAt})`;
+    const images = input.images || [];
+    await sql`INSERT INTO products (id, slug, name, description, price, cost, stock, image, category, featured, variants, variant_style, images, created_at)
+      VALUES (${id}, ${slug}, ${input.name}, ${input.description}, ${input.price}, ${cost}, ${input.stock}, ${input.image}, ${input.category}, ${input.featured}, ${JSON.stringify(variants)}::jsonb, ${variantStyle}, ${JSON.stringify(images)}::jsonb, ${createdAt})`;
     invalidateStorefrontCache();
-    return { ...input, cost, variants, variantStyle, slug, id, createdAt };
+    return { ...input, cost, variants, variantStyle, images, slug, id, createdAt };
   },
   async updateProduct(id: string, patch: Partial<Product>): Promise<Product | undefined> {
     await ready();
@@ -416,7 +437,8 @@ export const db = {
     if (!cur) return undefined;
     const p = { ...cur, ...patch, id };
     await sql`UPDATE products SET slug=${p.slug}, name=${p.name}, description=${p.description}, price=${p.price}, cost=${p.cost || 0},
-      stock=${p.stock}, image=${p.image}, category=${p.category}, featured=${p.featured}, variants=${JSON.stringify(p.variants || [])}::jsonb, variant_style=${p.variantStyle || 'image'} WHERE id=${id}`;
+      stock=${p.stock}, image=${p.image}, category=${p.category}, featured=${p.featured}, variants=${JSON.stringify(p.variants || [])}::jsonb, variant_style=${p.variantStyle || 'image'},
+      images=${JSON.stringify(p.images || [])}::jsonb WHERE id=${id}`;
     invalidateStorefrontCache();
     return p;
   },

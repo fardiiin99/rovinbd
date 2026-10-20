@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db, type ProductVariant } from '@/lib/db';
+import { db, type ProductVariant, sanitizeImages } from '@/lib/db';
 import { getSession } from '@/lib/auth';
 
 function sanitizeVariants(raw: unknown): ProductVariant[] {
@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     category: body.category || 'classic', featured: !!body.featured,
     variants: sanitizeVariants(body.variants),
     variantStyle: body.variantStyle === 'size' ? 'size' : 'image',
+    images: sanitizeImages(body.images),
   });
   return NextResponse.json(p);
 }

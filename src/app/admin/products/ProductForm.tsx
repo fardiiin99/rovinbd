@@ -83,8 +83,16 @@ export default function ProductForm({ product, categories = [] }: { product?: Pr
         <div><label className="label">Category</label>
           <select className="input" value={form.category} onChange={(e) => {
             const cat = e.target.value;
-            const isAcid = cat.toLowerCase().replace(/\s+/g, '-').includes('acid');
-            setForm((f) => ({ ...f, category: cat, variantStyle: isAcid && f.variantStyle === 'image' ? 'size' : f.variantStyle }));
+            // Match on the label too: "Acid Wash Tees" is stored under the slug "tribal".
+            const label = options.find((o) => o.value === cat)?.label || '';
+            const isSized = /acid|bodycon/i.test(`${cat} ${label}`);
+            setForm((f) => ({ ...f, category: cat, variantStyle: isSized && f.variantStyle === 'image' ? 'size' : f.variantStyle }));
+            if (isSized && variants.length === 0) {
+              setVariants(['S', 'M', 'L', 'XL'].map((name) => ({
+                id: 'v_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4),
+                name, image: '/placeholder.svg', stock: 0,
+              })));
+            }
           }}>
             {options.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>

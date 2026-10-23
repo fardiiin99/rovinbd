@@ -41,6 +41,39 @@ jobs:
       - name: Build
         run: npm run build
 
+  # Builds the production image on GitHub's runners and publishes it, so the
+  # Coolify server only pulls and starts it. Building on that server ran it out
+  # of memory and froze every site it hosts.
+  publish:
+    name: Publish image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/fardiiin99/rovinbd:latest
+            ghcr.io/fardiiin99/rovinbd:${{ github.sha }}
+          # NEXT_PUBLIC_* values are inlined at build time. Both are public IDs.
+          build-args: |
+            NEXT_PUBLIC_META_PIXEL_ID=29001679549521002
+            NEXT_PUBLIC_GA_ID=G-Y3XL9ENBXH
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   docker:
     name: Docker image
     runs-on: ubuntu-latest

@@ -1,9 +1,8 @@
-import { NextResponse, after } from 'next/server';
+import { NextResponse } from 'next/server';
 import { db, DELIVERY_CHARGES, type DeliveryZone } from '@/lib/db';
 import { sendCapiEvent, extractClientContext } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 import { notifyOrderPlaced } from '@/lib/notify';
-import { createPathaoOrder } from '@/lib/pathao';
 import { sendGA4Purchase, extractGA4ClientId } from '@/lib/ga4';
 
 export async function POST(req: Request) {
@@ -92,29 +91,7 @@ export async function POST(req: Request) {
       })),
     }).catch(console.error);
 
-    // Create Pathao delivery order (best-effort — doesn't block the response, but
-    // runs via after() so the request isn't torn down until it settles)
-    after(async () => {
-      try {
-        const result = await createPathaoOrder({
-          merchantOrderId: String(order.orderNumber),
-          recipientName: order.customerName,
-          recipientPhone: order.customerPhone,
-          recipientAddress: `${order.shippingAddress}, ${order.city}`,
-          amountToCollect: order.total,
-          itemQuantity: items.reduce((s: number, i: { qty: number }) => s + i.qty, 0),
-          itemWeight: 0.5,
-        });
-        if (result.ok) {
-          await db.updateOrderPathaoConsignment(order.id, result.consignmentId, result.deliveryFee);
-        } else {
-          console.error('Pathao order creation failed:', result.error);
-        }
-      } catch (err) {
-        console.error('Pathao order creation failed:', err);
-      }
-    });
-
+    // Pathao is booked manually from admin → Orders → "Send to Pathao".
     return NextResponse.json({ id: order.id, orderNumber: order.orderNumber });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

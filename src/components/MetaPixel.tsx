@@ -1,11 +1,12 @@
 'use client';
 import { usePathname } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { fbqTrack, mirrorToCapi, newEventId } from '@/lib/pixel';
 import { HAS_META_PIXEL, META_PIXEL_ID_INVALID } from '@/lib/pixel-config';
 
 export default function MetaPixel() {
   const pathname = usePathname();
+  const lastPath = useRef<string | null>(null);
 
   // Fire PageView on first load AND every client-side route change.
   // Each gets a fresh event_id so the browser pixel and the server CAPI
@@ -19,7 +20,9 @@ export default function MetaPixel() {
         '[MetaPixel] NEXT_PUBLIC_META_PIXEL_ID is set but is not a valid numeric pixel ID — ignoring it and using the built-in pixel ID.',
       );
     }
-    if (!HAS_META_PIXEL) return;
+    if (!HAS_META_PIXEL || lastPath.current === pathname) return;
+    lastPath.current = pathname;
+    if (pathname.startsWith('/admin')) return;
     const eventId = newEventId('pv');
     fbqTrack('PageView', undefined, { eventID: eventId });
     mirrorToCapi('PageView', eventId);

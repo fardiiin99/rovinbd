@@ -24,6 +24,8 @@ export type FinanceSummary = {
   returnCost: number;
   netProfit: number;
   deliveredCount: number;
+  deliveredWithCollectionCount: number;
+  deliveredCollectedRevenue: number;
   returnedCount: number;
   paidReturnCount: number;
   pendingCount: number;
@@ -46,6 +48,8 @@ export function computeFinance(
   let deliveryProfit = 0;
   let returnCost = 0;
   let deliveredCount = 0;
+  let deliveredWithCollectionCount = 0;
+  let deliveredCollectedRevenue = 0;
   let returnedCount = 0;
   let paidReturnCount = 0;
   let pendingCount = 0;
@@ -63,6 +67,10 @@ export function computeFinance(
 
     if (o.status === 'received') {
       deliveredCount++;
+      if (o.pathaoCollectedAmount != null && o.pathaoCollectedAmount > 0) {
+        deliveredWithCollectionCount++;
+        deliveredCollectedRevenue += o.pathaoCollectedAmount;
+      }
       // Use Pathao's real collected amount when known (covers partial COD, etc.), otherwise the order total.
       rowRevenue = o.pathaoCollectedAmount ?? o.total;
       rowCogs = itemCost;
@@ -114,7 +122,8 @@ export function computeFinance(
   return {
     summary: {
       revenue, cogs, deliveryCost, deliveryProfit, returnCost, netProfit,
-      deliveredCount, returnedCount, paidReturnCount, pendingCount, pendingValue,
+      deliveredCount, deliveredWithCollectionCount, deliveredCollectedRevenue,
+      returnedCount, paidReturnCount, pendingCount, pendingValue,
     },
     orders: rows.sort((a, b) => b.createdAt - a.createdAt),
   };

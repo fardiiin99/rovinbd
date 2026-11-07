@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { db, DELIVERY_CHARGES, type DeliveryZone } from '@/lib/db';
+import { db, DELIVERY_CHARGES, type DeliveryZone, type Order } from '@/lib/db';
 import { sendCapiEvent, extractClientContext } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 import { notifyOrderPlaced } from '@/lib/notify';
 import { sendGA4Purchase, extractGA4ClientId } from '@/lib/ga4';
+import { hasTrackingConsent } from '@/lib/tracking-consent';
 
 export async function POST(req: Request) {
   try {
@@ -17,13 +18,40 @@ export async function POST(req: Request) {
 
     const deliveryZone: DeliveryZone = body.deliveryZone === 'outside_dhaka' ? 'outside_dhaka' : 'inside_dhaka';
 
-    const items = body.items.map((c: { productId: string; name: string; price: number; qty: number; image: string; variantId?: string; variantName?: string }) => ({
-      productId: c.productId, name: c.name, price: Number(c.price) || 0, qty: Number(c.qty) || 0, image: c.image,
-      variantId: c.variantId || undefined, variantName: c.variantName || undefined,
-    }));
+    const items: Order['items'] = [];
+    for (const line of body.items) {
+      if (typeof line?.productId !== 'string' || !Number.isSafeInteger(line.qty) || line.qty < 1) {
+        return NextResponse.json({ error: 'Invalid cart item' }, { status: 400 });
+      }
+      const product = await db.getProduct(line.productId);
+      const variant = product?.variants.find((entry) => entry.id === line.variantId);
+      if (!product || (product.variants.length > 0 && !variant) || (line.variantId && !variant)) {
+        return NextResponse.json({ error: 'A cart item is no longer available' }, { status: 409 });
+      }
+      const existing = items.find((item) => item.productId === product.id && item.variantId === variant?.id);
+      const quantity = (existing?.qty ?? 0) + line.qty;
+      if (quantity > (variant?.stock ?? product.stock)) {
+        return NextResponse.json({ error: 'A cart item exceeds available stock' }, { status: 409 });
+      }
+      if (existing) {
+        existing.qty = quantity;
+      } else {
+        items.push({
+          productId: product.id,
+          name: variant ? `${product.name} — ${variant.name}` : product.name,
+          price: product.price,
+          qty: line.qty as number,
+          image: variant?.image || product.image,
+          variantId: variant?.id,
+          variantName: variant?.name,
+        });
+      }
+    }
     const subtotal = items.reduce((s: number, i: { price: number; qty: number }) => s + i.price * i.qty, 0);
     const shipping = DELIVERY_CHARGES[deliveryZone];
     const total = subtotal + shipping;
+    const cookie = req.headers.get('cookie');
+    const trackingConsent = hasTrackingConsent(cookie);
 
     const order = await db.createOrder({
       customerName: body.customerName,
@@ -39,13 +67,14 @@ export async function POST(req: Request) {
       total,
       paymentMethod: 'cod',
       deliveryZone,
+      trackingConsent,
     });
 
     const ctx = extractClientContext(req);
     const [firstName, ...rest] = String(body.customerName).trim().split(/\s+/);
     const lastName = rest.join(' ');
     const origin = req.headers.get('origin') || '';
-    await sendCapiEvent({
+    if (trackingConsent) await sendCapiEvent({
       eventName: 'Purchase',
       eventId: order.id,
       eventSourceUrl: `${origin}/order-confirmation/${order.id}`,
@@ -77,8 +106,8 @@ export async function POST(req: Request) {
     await notifyOrderPlaced(order);
 
     // GA4 Measurement Protocol — server-side purchase event
-    const gaCookie = req.headers.get('cookie')?.match(/_ga=([^;]+)/)?.[1];
-    sendGA4Purchase({
+    const gaCookie = cookie?.match(/(?:^|;\s*)_ga=([^;]+)/)?.[1];
+    if (trackingConsent && gaCookie) await sendGA4Purchase({
       clientId: extractGA4ClientId(gaCookie),
       transactionId: String(order.orderNumber),
       value: total,

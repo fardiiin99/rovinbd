@@ -53,7 +53,7 @@ export default function CheckoutForm() {
         currency: GA_CURRENCY,
         value: items.reduce((s, i) => s + i.price * i.qty, 0),
         items: items.map((i) => ({
-          item_id: i.variantId ? `${i.productId}::${i.variantId}` : i.productId,
+          item_id: i.productId,
           item_name: i.name,
           item_variant: i.variantName,
           price: i.price,

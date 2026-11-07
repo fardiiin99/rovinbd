@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { gtagEvent } from '@/lib/gtag';
+import { hasTrackingConsent } from '@/lib/tracking-consent';
 
 export default function PixelPurchase({
   value,
@@ -22,8 +23,15 @@ export default function PixelPurchase({
   const fired = useRef(false);
 
   useEffect(() => {
-    if (fired.current) return;
+    if (fired.current || !hasTrackingConsent(document.cookie)) return;
     fired.current = true;
+    try {
+      const key = `rovin:purchase:${orderId}`;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, '1');
+    } catch {
+      // The shared event and transaction IDs still identify the order.
+    }
 
     const w = window as unknown as { fbq?: (...args: unknown[]) => void };
     if (w.fbq) {
@@ -43,11 +51,11 @@ export default function PixelPurchase({
     }
 
     gtagEvent('purchase', {
-      transaction_id: orderId,
+      transaction_id: String(orderNumber ?? orderId),
       value,
       currency,
       items: (items || []).map((it) => ({
-        item_id: it.variantId ? `${it.id}::${it.variantId}` : it.id,
+        item_id: it.id,
         item_name: it.name,
         item_variant: it.variantName,
         price: it.price,

@@ -1,8 +1,11 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import MetaPixel from '@/components/MetaPixel';
 import GAnalytics from '@/components/GAnalytics';
+import TrackingPreferences from '@/components/TrackingPreferences';
 import { META_PIXEL_ID, HAS_META_PIXEL } from '@/lib/pixel-config';
+import { TRACKING_CONSENT_COOKIE } from '@/lib/tracking-consent';
 
 export const metadata: Metadata = {
   title: 'Rovin. — Handcrafted Bandanas',
@@ -16,13 +19,15 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
 // Second GA4 property; gtag('event') calls go to every configured ID.
 const GA_ID_2 = 'G-D4HCL53NRW';
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const trackingChoice = (await cookies()).get(TRACKING_CONSENT_COOKIE)?.value;
+  const trackingAllowed = trackingChoice === 'allow';
   return (
     <html lang="en">
       <head>
         <link href="https://db.onlinewebfonts.com/c/58ee300970307a1cc399e6bebd7617ce?family=Bamboly+Demo" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
-        {HAS_META_PIXEL && (
+        {trackingAllowed && HAS_META_PIXEL && (
           <>
             <script
               dangerouslySetInnerHTML={{
@@ -35,21 +40,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </noscript>
           </>
         )}
-        {GA_ID && (
+        {trackingAllowed && GA_ID && (
           <>
             <script async src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} />
             <script
               dangerouslySetInnerHTML={{
-                __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{send_page_view:true});gtag('config','${GA_ID_2}',{send_page_view:true});`,
+                __html: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}',{send_page_view:false});gtag('config','${GA_ID_2}',{send_page_view:false});`,
               }}
             />
           </>
         )}
       </head>
       <body className="min-h-screen flex flex-col antialiased">
-        <MetaPixel />
-        <GAnalytics />
+        {trackingAllowed && <MetaPixel />}
+        {trackingAllowed && <GAnalytics />}
         {children}
+        <TrackingPreferences hasChoice={trackingAllowed || trackingChoice === 'deny'} />
       </body>
     </html>
   );

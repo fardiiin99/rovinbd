@@ -195,6 +195,9 @@ export default function FinanceView({ initial }: { initial: FinanceData }) {
             <div className="text-sm text-stone-500 mt-1">
               {summary.deliveredCount} delivered · {summary.returnedCount} returned ({summary.paidReturnCount} paid) · {summary.pendingCount} pending
             </div>
+            <div className="text-xs text-stone-500 mt-1">
+              Pathao recorded {formatPrice(summary.deliveredCollectedRevenue)} collected across {summary.deliveredWithCollectionCount} delivered orders.
+            </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-3 text-right">
             <KpiInline label="Revenue" value={formatPrice(summary.revenue)} />

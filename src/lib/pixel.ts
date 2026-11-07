@@ -1,5 +1,6 @@
 // Client-side Meta Pixel helper. Safe no-op if the pixel isn't loaded.
 import { HAS_META_PIXEL } from './pixel-config';
+import { hasTrackingConsent } from './tracking-consent';
 
 type FbqParams = Record<string, unknown>;
 
@@ -45,7 +46,7 @@ export function mirrorToCapi(
   // A build with no pixel ID at all can't have the server send the event
   // either, so skip the request. With the ID hardcoded this is normally true,
   // and the POST is a no-op server-side until META_CAPI_ACCESS_TOKEN is set.
-  if (!HAS_META_PIXEL) return;
+  if (!HAS_META_PIXEL || !hasTrackingConsent(document.cookie)) return;
   try {
     fetch('/api/pixel/track', {
       method: 'POST',

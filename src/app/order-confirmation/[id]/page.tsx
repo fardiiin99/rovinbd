@@ -15,7 +15,7 @@ export default async function OrderConfirmation({ params }: { params: Promise<{ 
   return (
     <>
       <StoreHeader siteName={content.siteName} />
-      <PixelPurchase
+      {order.trackingConsent && <PixelPurchase
         value={order.total}
         orderId={order.id}
         orderNumber={order.orderNumber}
@@ -26,7 +26,7 @@ export default async function OrderConfirmation({ params }: { params: Promise<{ 
           variantId: it.variantId, variantName: it.variantName,
         }))}
         currency="BDT"
-      />
+      />}
       <main className="flex-1 max-w-3xl mx-auto px-4 py-12 w-full">
         <div className="card p-8 text-center">
           <div className="mx-auto w-14 h-14 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-3xl">✓</div>

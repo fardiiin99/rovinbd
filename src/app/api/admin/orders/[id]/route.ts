@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db, type Order } from '@/lib/db';
 import { getSession } from '@/lib/auth';
-import { sendCapiEvent, extractClientContext } from '@/lib/capi';
+import { sendCapiEvent } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 
-async function fireStatusCapi(req: Request, order: Order, eventName: 'PurchaseConfirmed' | 'Refunded') {
-  const ctx = extractClientContext(req);
+async function fireStatusCapi(order: Order, eventName: 'PurchaseConfirmed' | 'Refunded') {
+  if (!order.trackingConsent) return;
   const [firstName, ...rest] = String(order.customerName).trim().split(/\s+/);
   const lastName = rest.join(' ');
 
@@ -21,10 +21,6 @@ async function fireStatusCapi(req: Request, order: Order, eventName: 'PurchaseCo
       state: cityToDivision(order.city),
       country: 'bd',
       externalId: order.customerId,
-      ip: ctx.ip,
-      userAgent: ctx.userAgent,
-      fbc: ctx.fbc,
-      fbp: ctx.fbp,
     },
     customData: {
       currency: 'BDT',
@@ -49,9 +45,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   // Status-driven CAPI: only fire when transitioning into the new state
   if (before && before.status !== newStatus) {
-    if (newStatus === 'received') await fireStatusCapi(req, updated, 'PurchaseConfirmed');
+    if (newStatus === 'received') await fireStatusCapi(updated, 'PurchaseConfirmed');
     else if (newStatus === 'returned') {
-      await fireStatusCapi(req, updated, 'Refunded');
+      await fireStatusCapi(updated, 'Refunded');
       await db.restockOrderItems(updated.items);
     }
   }

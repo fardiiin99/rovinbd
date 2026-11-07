@@ -6,16 +6,20 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
 
 export default function GAnalytics() {
   const pathname = usePathname();
-  const isFirstRun = useRef(true);
+  const lastPath = useRef<string | null>(null);
 
   useEffect(() => {
     if (!GA_ID) return;
-    if (isFirstRun.current) {
-      isFirstRun.current = false;
+    if (lastPath.current === pathname) return;
+    if (pathname.startsWith('/admin')) {
+      lastPath.current = pathname;
       return;
     }
     const w = window as unknown as { gtag?: (...args: unknown[]) => void };
-    if (w.gtag) w.gtag('event', 'page_view', { page_path: pathname });
+    if (!w.gtag) return;
+    const pageLocation = window.location.href;
+    w.gtag('event', 'page_view', { page_path: pathname, page_location: pageLocation, page_title: document.title });
+    lastPath.current = pathname;
   }, [pathname]);
 
   return null;

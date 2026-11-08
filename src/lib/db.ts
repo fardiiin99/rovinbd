@@ -240,10 +240,18 @@ function ready(): Promise<void> {
   if (!readyPromise) {
     // The one exception is cheap, idempotent column adds that new code depends on.
     readyPromise = process.env.NODE_ENV === 'production'
-      ? ensureProductImagesColumn().catch((err) => console.error('[db] images column check failed', err))
+      ? ensureProductionColumns().catch((err) => {
+          readyPromise = null;
+          throw err;
+        })
       : ensureSchema();
   }
   return readyPromise;
+}
+
+async function ensureProductionColumns() {
+  await ensureProductImagesColumn();
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_consent boolean NOT NULL DEFAULT false`;
 }
 
 async function ensureSchema() {

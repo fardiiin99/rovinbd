@@ -21,7 +21,7 @@ const GA_ID_2 = 'G-D4HCL53NRW';
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const trackingChoice = (await cookies()).get(TRACKING_CONSENT_COOKIE)?.value;
-  const trackingAllowed = trackingChoice === 'allow';
+  const trackingAllowed = trackingChoice !== 'deny';
   return (
     <html lang="en">
       <head>
@@ -55,7 +55,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {trackingAllowed && <MetaPixel />}
         {trackingAllowed && <GAnalytics />}
         {children}
-        <TrackingPreferences hasChoice={trackingAllowed || trackingChoice === 'deny'} />
+        <TrackingPreferences hasChoice={trackingChoice === 'allow' || trackingChoice === 'deny'} />
       </body>
     </html>
   );

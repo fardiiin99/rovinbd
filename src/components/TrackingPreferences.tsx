@@ -16,10 +16,10 @@ export default function TrackingPreferences({ hasChoice }: { hasChoice: boolean 
     <aside className="fixed bottom-3 left-3 z-40 max-w-sm rounded-lg border bg-white p-3 text-sm text-stone-900 shadow-md" aria-label="Tracking preferences">
       {open ? (
         <>
-          <p>Allow optional Google Analytics and Meta tracking to help us measure visits, purchases, and ads?</p>
+          <p>We use Google Analytics and Meta to measure visits, purchases, and ads. You can turn this off.</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className="rounded border px-3 py-1" onClick={() => save('deny')}>Essential only</button>
-            <button type="button" className="rounded border px-3 py-1" onClick={() => save('allow')}>Allow tracking</button>
+            <button type="button" className="rounded border px-3 py-1" onClick={() => save('deny')}>Turn off tracking</button>
+            <button type="button" className="rounded border px-3 py-1" onClick={() => save('allow')}>OK</button>
           </div>
         </>
       ) : (

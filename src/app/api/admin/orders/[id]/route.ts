@@ -5,7 +5,6 @@ import { sendCapiEvent } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 
 async function fireStatusCapi(order: Order, eventName: 'PurchaseConfirmed' | 'Refunded') {
-  if (!order.trackingConsent) return;
   const [firstName, ...rest] = String(order.customerName).trim().split(/\s+/);
   const lastName = rest.join(' ');
 

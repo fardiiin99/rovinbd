@@ -4,7 +4,6 @@ import { sendCapiEvent, extractClientContext } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 import { notifyOrderPlaced } from '@/lib/notify';
 import { sendGA4Purchase, extractGA4ClientId } from '@/lib/ga4';
-import { hasTrackingConsent } from '@/lib/tracking-consent';
 
 export async function POST(req: Request) {
   try {
@@ -51,7 +50,6 @@ export async function POST(req: Request) {
     const shipping = DELIVERY_CHARGES[deliveryZone];
     const total = subtotal + shipping;
     const cookie = req.headers.get('cookie');
-    const trackingConsent = hasTrackingConsent(cookie);
 
     const order = await db.createOrder({
       customerName: body.customerName,
@@ -67,14 +65,14 @@ export async function POST(req: Request) {
       total,
       paymentMethod: 'cod',
       deliveryZone,
-      trackingConsent,
+      trackingConsent: true,
     });
 
     const ctx = extractClientContext(req);
     const [firstName, ...rest] = String(body.customerName).trim().split(/\s+/);
     const lastName = rest.join(' ');
     const origin = req.headers.get('origin') || '';
-    if (trackingConsent) await sendCapiEvent({
+    await sendCapiEvent({
       eventName: 'Purchase',
       eventId: order.id,
       eventSourceUrl: `${origin}/order-confirmation/${order.id}`,
@@ -96,6 +94,7 @@ export async function POST(req: Request) {
         currency: 'BDT',
         value: total,
         content_type: 'product',
+        content_name: items.map((i) => i.name).join(', '),
         content_ids: items.map((i: { productId: string }) => i.productId),
         contents: items.map((i: { productId: string; qty: number; price: number }) => ({ id: i.productId, quantity: i.qty, item_price: i.price })),
         num_items: items.reduce((s: number, i: { qty: number }) => s + i.qty, 0),
@@ -107,7 +106,7 @@ export async function POST(req: Request) {
 
     // GA4 Measurement Protocol — server-side purchase event
     const gaCookie = cookie?.match(/(?:^|;\s*)_ga=([^;]+)/)?.[1];
-    if (trackingConsent && gaCookie) await sendGA4Purchase({
+    if (gaCookie) await sendGA4Purchase({
       clientId: extractGA4ClientId(gaCookie),
       transactionId: String(order.orderNumber),
       value: total,

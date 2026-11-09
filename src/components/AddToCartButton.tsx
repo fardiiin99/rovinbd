@@ -64,7 +64,9 @@ export default function AddToCartButton({
       content_ids: [product.id],
       content_type: 'product',
       content_name: displayName,
-      contents: [{ id: product.id, quantity: qty }],
+      content_category: product.category,
+      contents: [{ id: product.id, quantity: qty, item_price: product.price }],
+      num_items: qty,
       value: product.price * qty,
       currency: PIXEL_CURRENCY,
     };

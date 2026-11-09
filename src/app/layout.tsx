@@ -1,11 +1,8 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
 import MetaPixel from '@/components/MetaPixel';
 import GAnalytics from '@/components/GAnalytics';
-import TrackingPreferences from '@/components/TrackingPreferences';
 import { META_PIXEL_ID, HAS_META_PIXEL } from '@/lib/pixel-config';
-import { TRACKING_CONSENT_COOKIE } from '@/lib/tracking-consent';
 
 export const metadata: Metadata = {
   title: 'Rovin. — Handcrafted Bandanas',
@@ -19,19 +16,35 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
 // Second GA4 property; gtag('event') calls go to every configured ID.
 const GA_ID_2 = 'G-D4HCL53NRW';
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const trackingChoice = (await cookies()).get(TRACKING_CONSENT_COOKIE)?.value;
-  const trackingAllowed = trackingChoice !== 'deny';
+// Runs before fbq('init') so the pixel and the Conversions API see the same
+// identity on every event:
+// - rovin_vid: anonymous first-party visitor ID, sent as external_id.
+// - _fbp: Meta's browser ID, in its own format, for visitors whose ad blocker
+//   stops fbevents.js from setting it (fbevents.js reuses an existing one).
+// - _fbc: built from ?fbclid when fbevents.js hasn't set it (ad blockers),
+//   so server events still carry the ad click.
+// - rovin_am: advanced-matching data saved after a purchase, so a returning
+//   customer's events match their Meta profile.
+const PIXEL_IDENTITY_SCRIPT = `var am={};try{am=JSON.parse(localStorage.getItem('rovin_am')||'{}')||{}}catch(e){}` +
+  `var ck=function(n){var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?m[1]:''};` +
+  `var vid=ck('rovin_vid');if(!vid){vid=Date.now().toString(36)+Math.random().toString(36).slice(2,10);` +
+  `document.cookie='rovin_vid='+vid+'; Path=/; Max-Age=63072000; SameSite=Lax'}` +
+  `if(!am.external_id)am.external_id=vid;` +
+  `if(!ck('_fbp'))document.cookie='_fbp=fb.1.'+Date.now()+'.'+Math.floor(Math.random()*2147483647)+'; Path=/; Max-Age=7776000; SameSite=Lax';` +
+  `try{var fc=new URLSearchParams(location.search).get('fbclid');if(fc&&ck('_fbc').split('.').pop()!==fc)` +
+  `document.cookie='_fbc=fb.1.'+Date.now()+'.'+fc+'; Path=/; Max-Age=7776000; SameSite=Lax'}catch(e){}`;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head>
         <link href="https://db.onlinewebfonts.com/c/58ee300970307a1cc399e6bebd7617ce?family=Bamboly+Demo" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
-        {trackingAllowed && HAS_META_PIXEL && (
+        {HAS_META_PIXEL && (
           <>
             <script
               dangerouslySetInnerHTML={{
-                __html: `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${META_PIXEL_ID}');`,
+                __html: `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');${PIXEL_IDENTITY_SCRIPT}fbq('init','${META_PIXEL_ID}',am);`,
               }}
             />
             <noscript>
@@ -40,7 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </noscript>
           </>
         )}
-        {trackingAllowed && GA_ID && (
+        {GA_ID && (
           <>
             <script async src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} />
             <script
@@ -52,10 +65,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         )}
       </head>
       <body className="min-h-screen flex flex-col antialiased">
-        {trackingAllowed && <MetaPixel />}
-        {trackingAllowed && <GAnalytics />}
+        <MetaPixel />
+        <GAnalytics />
         {children}
-        <TrackingPreferences hasChoice={trackingChoice === 'allow' || trackingChoice === 'deny'} />
       </body>
     </html>
   );

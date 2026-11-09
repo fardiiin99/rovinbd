@@ -41,7 +41,8 @@ export default function CheckoutForm() {
       const icData = {
         content_ids: items.map((i) => i.productId),
         content_type: 'product',
-        contents: items.map((i) => ({ id: i.productId, quantity: i.qty })),
+        content_name: items.map((i) => i.name).join(', '),
+        contents: items.map((i) => ({ id: i.productId, quantity: i.qty, item_price: i.price })),
         num_items: items.reduce((s, i) => s + i.qty, 0),
         value,
         currency: PIXEL_CURRENCY,

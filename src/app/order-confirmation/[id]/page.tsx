@@ -5,17 +5,31 @@ import { formatPrice, formatDate } from '@/lib/format';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import PixelPurchase from '@/components/PixelPurchase';
+import { normalizePhoneBD } from '@/lib/hash';
+import { cityToDivision } from '@/lib/bd-divisions';
 
 export default async function OrderConfirmation({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const content = await db.getContent();
   const order = await db.getOrder(id);
   if (!order) notFound();
+  // Normalized the way Meta expects; the pixel hashes them before sending.
+  const [firstName, ...restName] = order.customerName.trim().toLowerCase().split(/\s+/);
+  const matchData = {
+    em: order.customerEmail?.trim().toLowerCase() || undefined,
+    ph: normalizePhoneBD(order.customerPhone),
+    fn: firstName || undefined,
+    ln: restName.join(' ') || undefined,
+    ct: order.city.toLowerCase().replace(/\s/g, '') || undefined,
+    st: cityToDivision(order.city),
+    country: 'bd',
+    external_id: order.customerId,
+  };
 
   return (
     <>
       <StoreHeader siteName={content.siteName} />
-      {order.trackingConsent && <PixelPurchase
+      <PixelPurchase
         value={order.total}
         orderId={order.id}
         orderNumber={order.orderNumber}
@@ -25,8 +39,9 @@ export default async function OrderConfirmation({ params }: { params: Promise<{ 
           id: it.productId, name: it.name, price: it.price, qty: it.qty,
           variantId: it.variantId, variantName: it.variantName,
         }))}
+        matchData={matchData}
         currency="BDT"
-      />}
+      />
       <main className="flex-1 max-w-3xl mx-auto px-4 py-12 w-full">
         <div className="card p-8 text-center">
           <div className="mx-auto w-14 h-14 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-3xl">✓</div>

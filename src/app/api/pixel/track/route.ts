@@ -7,7 +7,6 @@ import {
   META_PIXEL_ID_FROM_FALLBACK,
 } from '@/lib/pixel-config';
 import { cityToDivision } from '@/lib/bd-divisions';
-import { hasTrackingConsent } from '@/lib/tracking-consent';
 
 const browserEvents = new Set(['PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Search', 'ViewCategory']);
 
@@ -30,7 +29,6 @@ type IncomingBody = {
 };
 
 export async function POST(req: Request) {
-  if (!hasTrackingConsent(req.headers.get('cookie'))) return new Response(null, { status: 204 });
   try {
     const body = (await req.json()) as IncomingBody;
     if (!browserEvents.has(body?.eventName) || typeof body?.eventId !== 'string' || !/^[\w-]{1,128}$/.test(body.eventId)) {

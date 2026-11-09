@@ -31,6 +31,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           content_type: 'product',
           content_name: product.name,
           content_category: product.category,
+          contents: [{ id: product.id, quantity: 1, item_price: product.price }],
           value: product.price,
           currency: 'BDT',
         }}

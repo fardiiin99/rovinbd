@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { gtagEvent } from '@/lib/gtag';
-import { hasTrackingConsent } from '@/lib/tracking-consent';
+import { setPixelMatchData, type PixelMatchData } from '@/lib/pixel';
+import { META_PIXEL_ID } from '@/lib/pixel-config';
 
 export default function PixelPurchase({
   value,
@@ -10,6 +11,7 @@ export default function PixelPurchase({
   contentIds,
   numItems,
   items,
+  matchData,
   currency = 'BDT',
 }: {
   value: number;
@@ -18,12 +20,13 @@ export default function PixelPurchase({
   contentIds?: string[];
   numItems?: number;
   items?: { id: string; name: string; price: number; qty: number; variantId?: string; variantName?: string }[];
+  matchData?: PixelMatchData;
   currency?: string;
 }) {
   const fired = useRef(false);
 
   useEffect(() => {
-    if (fired.current || !hasTrackingConsent(document.cookie)) return;
+    if (fired.current) return;
     fired.current = true;
     try {
       const key = `rovin:purchase:${orderId}`;
@@ -33,6 +36,9 @@ export default function PixelPurchase({
       // The shared event and transaction IDs still identify the order.
     }
 
+    // Before Purchase, so it goes out matched to the buyer, as do their later visits.
+    if (matchData) setPixelMatchData(matchData, META_PIXEL_ID);
+
     const w = window as unknown as { fbq?: (...args: unknown[]) => void };
     if (w.fbq) {
       w.fbq(
@@ -41,6 +47,8 @@ export default function PixelPurchase({
         {
           content_ids: contentIds ?? [],
           content_type: 'product',
+          content_name: (items || []).map((it) => it.name).join(', '),
+          contents: (items || []).map((it) => ({ id: it.id, quantity: it.qty, item_price: it.price })),
           num_items: numItems ?? 0,
           value,
           currency,
@@ -62,7 +70,7 @@ export default function PixelPurchase({
         quantity: it.qty,
       })),
     });
-  }, [value, currency, orderId, orderNumber, contentIds, numItems, items]);
+  }, [value, currency, orderId, orderNumber, contentIds, numItems, items, matchData]);
 
   return null;
 }

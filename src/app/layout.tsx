@@ -15,6 +15,9 @@ export const dynamic = 'force-dynamic';
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID || 'G-Y3XL9ENBXH';
 // Second GA4 property; gtag('event') calls go to every configured ID.
 const GA_ID_2 = 'G-D4HCL53NRW';
+// Google Tag Manager container. GA4 and the Meta Pixel are already sent by
+// the site itself, so don't add GA4 or Meta tags in GTM or they double count.
+const GTM_ID = 'GTM-TW7SHC3C';
 
 // Runs before fbq('init') so the pixel and the Conversions API see the same
 // identity on every event:
@@ -38,6 +41,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${GTM_ID}');`,
+          }}
+        />
         <link href="https://db.onlinewebfonts.com/c/58ee300970307a1cc399e6bebd7617ce?family=Bamboly+Demo" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
         {HAS_META_PIXEL && (
@@ -65,6 +73,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         )}
       </head>
       <body className="min-h-screen flex flex-col antialiased">
+        <noscript>
+          <iframe src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`} height="0" width="0" style={{ display: 'none', visibility: 'hidden' }} />
+        </noscript>
         <MetaPixel />
         <GAnalytics />
         {children}

@@ -56,6 +56,9 @@ export type Order = {
   pathaoDeliveryFee?: number;
   pathaoCollectedAmount?: number;
   trackingConsent?: boolean;
+  // The buyer's browser at checkout, so later server events (PurchaseConfirmed,
+  // Refunded) carry the customer's identifiers rather than the admin's.
+  trackingContext?: { ip?: string; userAgent?: string; fbc?: string; fbp?: string };
   createdAt: number;
 };
 
@@ -202,6 +205,7 @@ function rowToOrder(r: any): Order {
     pathaoDeliveryFee: r.pathao_delivery_fee != null ? Number(r.pathao_delivery_fee) : undefined,
     pathaoCollectedAmount: r.pathao_collected_amount != null ? Number(r.pathao_collected_amount) : undefined,
     trackingConsent: r.tracking_consent === true,
+    trackingContext: r.tracking_context || undefined,
     createdAt: Number(r.created_at),
   };
 }
@@ -252,6 +256,7 @@ function ready(): Promise<void> {
 async function ensureProductionColumns() {
   await ensureProductImagesColumn();
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_consent boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_context jsonb`;
 }
 
 async function ensureSchema() {
@@ -281,6 +286,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pathao_delivery_fee numeric`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pathao_collected_amount numeric`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_consent boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_context jsonb`;
   await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS cost numeric DEFAULT 0`;
   // Backfill: set last_order_at = created_at where null, then take max from orders if any newer
   await sql`UPDATE customers SET last_order_at = created_at WHERE last_order_at IS NULL`;
@@ -516,8 +522,8 @@ export const db = {
 
     const id = uid('o');
     const { rows: [{ order_number: orderNumber }] } = await sql`
-      INSERT INTO orders (id, order_number, customer_id, customer_name, customer_email, customer_phone, shipping_address, city, postal_code, notes, items, subtotal, shipping, total, status, payment_method, delivery_zone, tracking_consent, created_at)
-      VALUES (${id}, nextval('order_number_seq'), ${customerId}, ${input.customerName}, ${input.customerEmail}, ${input.customerPhone}, ${input.shippingAddress}, ${input.city}, ${input.postalCode}, ${input.notes}, ${JSON.stringify(input.items)}::jsonb, ${input.subtotal}, ${input.shipping}, ${input.total}, ${'pending'}, ${input.paymentMethod}, ${input.deliveryZone}, ${input.trackingConsent ?? false}, ${now})
+      INSERT INTO orders (id, order_number, customer_id, customer_name, customer_email, customer_phone, shipping_address, city, postal_code, notes, items, subtotal, shipping, total, status, payment_method, delivery_zone, tracking_consent, tracking_context, created_at)
+      VALUES (${id}, nextval('order_number_seq'), ${customerId}, ${input.customerName}, ${input.customerEmail}, ${input.customerPhone}, ${input.shippingAddress}, ${input.city}, ${input.postalCode}, ${input.notes}, ${JSON.stringify(input.items)}::jsonb, ${input.subtotal}, ${input.shipping}, ${input.total}, ${'pending'}, ${input.paymentMethod}, ${input.deliveryZone}, ${input.trackingConsent ?? false}, ${input.trackingContext ? JSON.stringify(input.trackingContext) : null}::jsonb, ${now})
       RETURNING order_number`;
 
     return { ...input, customerId, id, orderNumber: Number(orderNumber), status: 'pending', createdAt: now };

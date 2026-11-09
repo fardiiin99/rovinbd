@@ -66,6 +66,7 @@ export async function POST(req: Request) {
       paymentMethod: 'cod',
       deliveryZone,
       trackingConsent: true,
+      trackingContext: (({ ip, userAgent, fbc, fbp }) => ({ ip, userAgent, fbc, fbp }))(extractClientContext(req)),
     });
 
     const ctx = extractClientContext(req);

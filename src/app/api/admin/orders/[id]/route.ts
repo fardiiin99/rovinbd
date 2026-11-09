@@ -4,13 +4,18 @@ import { getSession } from '@/lib/auth';
 import { sendCapiEvent } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 
-async function fireStatusCapi(order: Order, eventName: 'PurchaseConfirmed' | 'Refunded') {
+async function fireStatusCapi(req: Request, order: Order, eventName: 'PurchaseConfirmed' | 'Refunded') {
+  const ctx = order.trackingContext;
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
   const [firstName, ...rest] = String(order.customerName).trim().split(/\s+/);
   const lastName = rest.join(' ');
 
   await sendCapiEvent({
     eventName,
     eventId: `${eventName.toLowerCase()}_${order.id}`,
+    // Orders placed before the buyer's browser details were saved have no user agent.
+    actionSource: ctx?.userAgent ? 'website' : 'system_generated',
+    eventSourceUrl: host ? `https://${host}/order-confirmation/${order.id}` : undefined,
     userData: {
       email: order.customerEmail || undefined,
       phone: order.customerPhone,
@@ -20,6 +25,10 @@ async function fireStatusCapi(order: Order, eventName: 'PurchaseConfirmed' | 'Re
       state: cityToDivision(order.city),
       country: 'bd',
       externalId: order.customerId,
+      ip: ctx?.ip,
+      userAgent: ctx?.userAgent,
+      fbc: ctx?.fbc,
+      fbp: ctx?.fbp,
     },
     customData: {
       currency: 'BDT',
@@ -44,9 +53,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   // Status-driven CAPI: only fire when transitioning into the new state
   if (before && before.status !== newStatus) {
-    if (newStatus === 'received') await fireStatusCapi(updated, 'PurchaseConfirmed');
+    if (newStatus === 'received') await fireStatusCapi(req, updated, 'PurchaseConfirmed');
     else if (newStatus === 'returned') {
-      await fireStatusCapi(updated, 'Refunded');
+      await fireStatusCapi(req, updated, 'Refunded');
       await db.restockOrderItems(updated.items);
     }
   }

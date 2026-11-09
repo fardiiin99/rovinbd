@@ -25,6 +25,9 @@ type CapiEvent = {
   eventName: string;
   eventId: string;
   eventSourceUrl?: string;
+  // 'website' requires the visitor's user agent; use 'system_generated' for
+  // server-side events that have none.
+  actionSource?: 'website' | 'system_generated';
   userData: UserData;
   customData?: Record<string, unknown>;
 };
@@ -68,7 +71,7 @@ export async function sendCapiEvent(event: CapiEvent): Promise<void> {
         event_name: event.eventName,
         event_time: Math.floor(Date.now() / 1000),
         event_id: event.eventId,
-        action_source: 'website',
+        action_source: event.actionSource ?? 'website',
         event_source_url: event.eventSourceUrl,
         user_data: ud,
         custom_data: event.customData,

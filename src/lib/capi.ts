@@ -1,3 +1,4 @@
+import { isIPv6 } from 'net';
 import { sha256, normalizePhoneBD } from './hash';
 import { META_PIXEL_ID } from './pixel-config';
 
@@ -14,6 +15,7 @@ type UserData = {
   city?: string;
   state?: string;
   country?: string;
+  zip?: string;
   externalId?: string;
   ip?: string;
   userAgent?: string;
@@ -59,6 +61,7 @@ export async function sendCapiEvent(event: CapiEvent): Promise<void> {
   if (event.userData.city) ud.ct = sha256(event.userData.city.replace(/\s/g, ''));
   if (event.userData.state) ud.st = sha256(event.userData.state.replace(/\s/g, ''));
   if (event.userData.country) ud.country = sha256(event.userData.country);
+  if (event.userData.zip) ud.zp = sha256(event.userData.zip.replace(/\s/g, '').toLowerCase());
   if (event.userData.externalId) ud.external_id = sha256(event.userData.externalId);
   if (event.userData.ip) ud.client_ip_address = event.userData.ip;
   if (event.userData.userAgent) ud.client_user_agent = event.userData.userAgent;
@@ -93,6 +96,16 @@ export async function sendCapiEvent(event: CapiEvent): Promise<void> {
   } catch (err) {
     console.error('CAPI event error:', err);
   }
+}
+
+// The site has no IPv6 address, so the server only ever sees a visitor's IPv4,
+// while the browser pixel reaches Meta over IPv6. Checkout asks an IPv6-capable
+// echo service for the visitor's address and posts it; prefer it when it is a
+// genuine IPv6 address so CAPI and the pixel report the same IP.
+export function preferIPv6(serverIp: string, browserReported: unknown): string {
+  if (typeof browserReported !== 'string') return serverIp;
+  const candidate = browserReported.trim();
+  return candidate.length <= 45 && isIPv6(candidate) ? candidate : serverIp;
 }
 
 export function extractClientContext(req: Request): { ip: string; userAgent: string; fbc?: string; fbp?: string } {

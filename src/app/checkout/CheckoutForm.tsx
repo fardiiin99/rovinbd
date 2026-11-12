@@ -22,11 +22,32 @@ export default function CheckoutForm() {
   const [deliveryZone, setDeliveryZone] = useState<Zone>('inside_dhaka');
   const [form, setForm] = useState({
     customerName: '', customerEmail: '', customerPhone: '',
-    shippingAddress: '', city: '',
+    shippingAddress: '', city: '', postalCode: '',
     notes: '',
   });
 
   const checkoutTracked = useRef(false);
+  const clientIpV6 = useRef<string | undefined>(undefined);
+
+  // The server only sees IPv4 (the site has no IPv6), while the pixel reaches
+  // Meta over IPv6. Look the visitor's IPv6 up early so the Purchase sent via
+  // the Conversions API can carry the same IP. api64 answers with the IPv4 when
+  // the visitor has no IPv6; the server ignores anything that isn't IPv6.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 3000);
+    fetch('https://api64.ipify.org?format=json', { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((d: { ip?: string }) => {
+        if (typeof d?.ip === 'string' && d.ip.includes(':')) clientIpV6.current = d.ip;
+      })
+      .catch(() => {})
+      .finally(() => window.clearTimeout(timer));
+    return () => {
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, []);
 
   useEffect(() => {
     let items: CartItem[] = [];
@@ -84,6 +105,7 @@ export default function CheckoutForm() {
         body: JSON.stringify({
           ...form,
           deliveryZone,
+          clientIpV6: clientIpV6.current,
           items: cart.map((c) => ({ productId: c.productId, name: c.name, price: c.price, qty: c.qty, image: c.image, variantId: c.variantId, variantName: c.variantName })),
         }),
       });
@@ -123,7 +145,8 @@ export default function CheckoutForm() {
           <h2 className="font-semibold text-lg mb-4">Shipping Address</h2>
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2"><label className="label">Address <span className="text-red-500">*</span></label><textarea required className="input" rows={2} value={form.shippingAddress} onChange={(e) => setForm({ ...form, shippingAddress: e.target.value })} /></div>
-            <div className="sm:col-span-2"><label className="label">City <span className="text-red-500">*</span></label><input required className="input" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+            <div><label className="label">City <span className="text-red-500">*</span></label><input required className="input" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+            <div><label className="label">Postal code (optional)</label><input className="input" inputMode="numeric" maxLength={12} autoComplete="postal-code" value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} /></div>
             <div className="sm:col-span-2"><label className="label">Order notes (optional)</label><textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
           </div>
         </div>

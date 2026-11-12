@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db, DELIVERY_CHARGES, type DeliveryZone, type Order } from '@/lib/db';
-import { sendCapiEvent, extractClientContext } from '@/lib/capi';
+import { sendCapiEvent, extractClientContext, preferIPv6 } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 import { notifyOrderPlaced } from '@/lib/notify';
 import { sendGA4Purchase, extractGA4ClientId } from '@/lib/ga4';
@@ -50,6 +50,9 @@ export async function POST(req: Request) {
     const shipping = DELIVERY_CHARGES[deliveryZone];
     const total = subtotal + shipping;
     const cookie = req.headers.get('cookie');
+    const serverCtx = extractClientContext(req);
+    const ctx = { ...serverCtx, ip: preferIPv6(serverCtx.ip, body.clientIpV6) };
+    const postalCode = typeof body.postalCode === 'string' ? body.postalCode.trim().slice(0, 12) : '';
 
     const order = await db.createOrder({
       customerName: body.customerName,
@@ -57,7 +60,7 @@ export async function POST(req: Request) {
       customerPhone: body.customerPhone,
       shippingAddress: body.shippingAddress,
       city: body.city,
-      postalCode: body.postalCode || '',
+      postalCode,
       notes: body.notes || '',
       items,
       subtotal,
@@ -66,10 +69,9 @@ export async function POST(req: Request) {
       paymentMethod: 'cod',
       deliveryZone,
       trackingConsent: true,
-      trackingContext: (({ ip, userAgent, fbc, fbp }) => ({ ip, userAgent, fbc, fbp }))(extractClientContext(req)),
+      trackingContext: (({ ip, userAgent, fbc, fbp }) => ({ ip, userAgent, fbc, fbp }))(ctx),
     });
 
-    const ctx = extractClientContext(req);
     const [firstName, ...rest] = String(body.customerName).trim().split(/\s+/);
     const lastName = rest.join(' ');
     const origin = req.headers.get('origin') || '';
@@ -85,6 +87,7 @@ export async function POST(req: Request) {
         city: body.city,
         state: cityToDivision(body.city),
         country: 'bd',
+        zip: postalCode || undefined,
         externalId: order.customerId,
         ip: ctx.ip,
         userAgent: ctx.userAgent,

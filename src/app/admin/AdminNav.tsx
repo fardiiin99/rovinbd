@@ -13,6 +13,7 @@ const links = [
   { href: '/admin/broadcast', label: 'SMS Broadcast' },
   { href: '/admin/banners', label: 'Banners' },
   { href: '/admin/category-tiles', label: 'Category Tiles' },
+  { href: '/admin/gallery', label: 'Gallery' },
   { href: '/admin/content', label: 'Site Content' },
 ];
 

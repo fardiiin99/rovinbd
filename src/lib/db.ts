@@ -105,6 +105,16 @@ export type CategoryTile = {
   order: number;
 };
 
+// A photo in the homepage "shop the look" gallery; `link` is where the photo
+// and its bag button go, usually a product page.
+export type GalleryItem = {
+  id: string;
+  image: string;
+  link: string;
+  label: string;
+  order: number;
+};
+
 export type SiteContent = {
   siteName: string;
   tagline: string;
@@ -221,6 +231,9 @@ function rowToTile(r: any): CategoryTile {
     image: r.image, bgColor: r.bg_color, order: Number(r.order),
   };
 }
+function rowToGalleryItem(r: any): GalleryItem {
+  return { id: r.id, image: r.image, link: r.link || '/shop', label: r.label || '', order: Number(r.order) };
+}
 function rowToContent(r: any): SiteContent {
   return {
     siteName: r.site_name, tagline: r.tagline, aboutTitle: r.about_title, aboutBody: r.about_body,
@@ -255,6 +268,7 @@ function ready(): Promise<void> {
 
 async function ensureProductionColumns() {
   await ensureProductImagesColumn();
+  await ensureGalleryTable();
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_consent boolean NOT NULL DEFAULT false`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_context jsonb`;
 }
@@ -318,12 +332,20 @@ async function ensureSchema() {
   )`;
   await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS return_fee numeric DEFAULT 100`;
   await ensureProductImagesColumn();
+  await ensureGalleryTable();
   await seedIfEmpty();
   await migrateStorefrontCatalog();
 }
 
 async function ensureProductImagesColumn() {
   await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS images jsonb DEFAULT '[]'::jsonb`;
+}
+
+async function ensureGalleryTable() {
+  await sql`CREATE TABLE IF NOT EXISTS gallery_items (
+    id text PRIMARY KEY, image text NOT NULL, link text DEFAULT '/shop', label text DEFAULT '',
+    "order" integer DEFAULT 1
+  )`;
 }
 
 async function migrateStorefrontCatalog() {
@@ -703,6 +725,39 @@ export const db = {
   async deleteCategoryTile(id: string): Promise<void> {
     await ready();
     await sql`DELETE FROM category_tiles WHERE id = ${id}`;
+    invalidateStorefrontCache();
+  },
+
+  // homepage gallery
+  async listGalleryItems(): Promise<GalleryItem[]> {
+    return cachedRead('gallery-items', async () => {
+      await ready();
+      const { rows } = await sql`SELECT * FROM gallery_items ORDER BY "order" ASC, id ASC`;
+      return rows.map(rowToGalleryItem);
+    });
+  },
+  async createGalleryItem(item: Omit<GalleryItem, 'id' | 'order'>): Promise<GalleryItem> {
+    await ready();
+    const id = uid('gal');
+    const { rows } = await sql`SELECT COALESCE(MAX("order"), 0) + 1 AS next FROM gallery_items`;
+    const order = Number(rows[0]?.next ?? 1);
+    await sql`INSERT INTO gallery_items (id, image, link, label, "order")
+      VALUES (${id}, ${item.image}, ${item.link}, ${item.label}, ${order})`;
+    invalidateStorefrontCache();
+    return { ...item, id, order };
+  },
+  async updateGalleryItem(id: string, patch: Partial<Omit<GalleryItem, 'id'>>): Promise<GalleryItem | undefined> {
+    await ready();
+    const { rows } = await sql`SELECT * FROM gallery_items WHERE id = ${id} LIMIT 1`;
+    if (!rows[0]) return undefined;
+    const g = { ...rowToGalleryItem(rows[0]), ...patch, id };
+    await sql`UPDATE gallery_items SET image=${g.image}, link=${g.link}, label=${g.label}, "order"=${g.order} WHERE id=${id}`;
+    invalidateStorefrontCache();
+    return g;
+  },
+  async deleteGalleryItem(id: string): Promise<void> {
+    await ready();
+    await sql`DELETE FROM gallery_items WHERE id = ${id}`;
     invalidateStorefrontCache();
   },
 

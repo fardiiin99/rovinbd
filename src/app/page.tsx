@@ -11,18 +11,29 @@ export const metadata: Metadata = {
 import { db } from '@/lib/db';
 import StoreHeader from '@/components/StoreHeader';
 import StoreFooter from '@/components/StoreFooter';
-import ProductCard from '@/components/ProductCard';
+import ProductCarousel from '@/components/ProductCarousel';
 import CategoryShowcase from '@/components/CategoryShowcase';
+import LookGallery, { type LookItem } from '@/components/LookGallery';
 import Link from 'next/link';
 
 export default async function Home() {
-  const [content, featured, categoryTiles, cats] = await Promise.all([
+  const [content, featured, categoryTiles, allProducts, galleryItems] = await Promise.all([
     db.getContent(),
     db.featuredProducts(),
     db.listCategoryTiles(),
-    db.listProductCategories(),
+    db.listProducts(),
+    db.listGalleryItems(),
   ]);
-  const catLabel = (slug: string) => cats.find((c) => c.value === slug)?.label || slug;
+  // Products marked "Featured" in admin; the newest products if none are.
+  const recommended = featured.length > 0 ? featured : allProducts.slice(0, 10);
+  // Gallery photos from Admin → Gallery; until some are added, the newest
+  // products' photos (styled extra photos preferred) fill the row.
+  const looks: LookItem[] = galleryItems.length > 0
+    ? galleryItems
+    : [
+        ...allProducts.filter((p) => (p.images?.length ?? 0) > 0),
+        ...allProducts.filter((p) => (p.images?.length ?? 0) === 0),
+      ].map((p) => ({ id: p.id, image: p.images?.[0] || p.image, link: `/product/${p.slug}`, label: p.name }));
 
   return (
     <>
@@ -35,18 +46,7 @@ export default async function Home() {
 
         <CategoryShowcase tiles={categoryTiles} />
 
-        <section className="max-w-6xl mx-auto px-4 py-16">
-          <div className="flex items-end justify-between mb-8">
-            <div>
-              <h2 className="font-display text-3xl font-bold">Featured Bandanas</h2>
-              <p className="text-stone-600 mt-1">Hand-picked favourites from our latest collection.</p>
-            </div>
-            <Link href="/shop" className="text-brand-600 hover:text-brand-700 font-medium hidden sm:inline">View all →</Link>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
-            {featured.map((p) => <ProductCard key={p.id} product={p} categoryLabel={catLabel(p.category)} />)}
-          </div>
-        </section>
+        <ProductCarousel title="Recommended for you" products={recommended} />
 
         <section className="relative bg-stone-900 text-white overflow-hidden">
           <img
@@ -61,6 +61,7 @@ export default async function Home() {
             <Link href="/shop" className="btn btn-primary mt-6">Shop Now</Link>
           </div>
         </section>
+        <LookGallery items={looks} />
       </main>
       <StoreFooter siteName={content.siteName} email={content.contactEmail} phone={content.contactPhone} address={content.contactAddress} />
     </>

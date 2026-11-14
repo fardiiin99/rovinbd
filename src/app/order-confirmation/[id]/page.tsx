@@ -8,11 +8,18 @@ import PixelPurchase from '@/components/PixelPurchase';
 import { normalizePhoneBD } from '@/lib/hash';
 import { cityToDivision } from '@/lib/bd-divisions';
 
+// Checkout redirects here straight after the order is placed. The browser's
+// once-per-order guard lives in localStorage, so a later visit from another
+// browser or device (a shared link, a reopened in-app tab, a crawler) would
+// fire Purchase again, and past Meta's 48-hour window nothing deduplicates it.
+const PURCHASE_PIXEL_WINDOW_MS = 30 * 60 * 1000;
+
 export default async function OrderConfirmation({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const content = await db.getContent();
   const order = await db.getOrder(id);
   if (!order) notFound();
+  const justPlaced = Date.now() - order.createdAt < PURCHASE_PIXEL_WINDOW_MS;
   // Normalized the way Meta expects; the pixel hashes them before sending.
   const [firstName, ...restName] = order.customerName.trim().toLowerCase().split(/\s+/);
   const matchData = {
@@ -29,19 +36,21 @@ export default async function OrderConfirmation({ params }: { params: Promise<{ 
   return (
     <>
       <StoreHeader siteName={content.siteName} />
-      <PixelPurchase
-        value={order.total}
-        orderId={order.id}
-        orderNumber={order.orderNumber}
-        contentIds={order.items.map((it) => it.productId)}
-        numItems={order.items.reduce((s, it) => s + it.qty, 0)}
-        items={order.items.map((it) => ({
-          id: it.productId, name: it.name, price: it.price, qty: it.qty,
-          variantId: it.variantId, variantName: it.variantName,
-        }))}
-        matchData={matchData}
-        currency="BDT"
-      />
+      {justPlaced && (
+        <PixelPurchase
+          value={order.total}
+          orderId={order.id}
+          orderNumber={order.orderNumber}
+          contentIds={order.items.map((it) => it.productId)}
+          numItems={order.items.reduce((s, it) => s + it.qty, 0)}
+          items={order.items.map((it) => ({
+            id: it.productId, name: it.name, price: it.price, qty: it.qty,
+            variantId: it.variantId, variantName: it.variantName,
+          }))}
+          matchData={matchData}
+          currency="BDT"
+        />
+      )}
       <main className="flex-1 max-w-3xl mx-auto px-4 py-12 w-full">
         <div className="card p-8 text-center">
           <div className="mx-auto w-14 h-14 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-3xl">✓</div>

@@ -27,8 +27,17 @@ const ENV_PIXEL_ID = sanitizePixelId(RAW_PIXEL_ID);
 /** The pixel ID this build uses. Always populated thanks to the fallback. */
 export const META_PIXEL_ID = ENV_PIXEL_ID || FALLBACK_PIXEL_ID;
 
-/** True when a usable pixel ID is baked into this build. */
-export const HAS_META_PIXEL = META_PIXEL_ID !== '';
+/**
+ * False on a developer machine (`next dev`). A local build carries the real
+ * pixel ID and Conversions API token, so without this every test order placed
+ * while developing reaches Events Manager as a genuine Purchase. Set
+ * NEXT_PUBLIC_TRACK_IN_DEV=1 to send events from a local build on purpose.
+ */
+export const TRACKING_LIVE =
+  process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_TRACK_IN_DEV === '1';
+
+/** True when this build has a usable pixel ID and is allowed to send to it. */
+export const HAS_META_PIXEL = META_PIXEL_ID !== '' && TRACKING_LIVE;
 
 /**
  * True when NEXT_PUBLIC_META_PIXEL_ID was set to something unusable, so the

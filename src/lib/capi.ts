@@ -1,6 +1,6 @@
 import { isIPv6 } from 'net';
 import { sha256, normalizePhoneBD } from './hash';
-import { META_PIXEL_ID } from './pixel-config';
+import { META_PIXEL_ID, TRACKING_LIVE } from './pixel-config';
 
 const PIXEL_ID = META_PIXEL_ID;
 const ACCESS_TOKEN = process.env.META_CAPI_ACCESS_TOKEN || '';
@@ -35,14 +35,22 @@ type CapiEvent = {
 };
 
 export function capiConfigured(): boolean {
-  return Boolean(PIXEL_ID && ACCESS_TOKEN);
+  return Boolean(PIXEL_ID && ACCESS_TOKEN && TRACKING_LIVE);
 }
 
 // Warn once per server process rather than on every event, so a missing
 // config is visible in the logs without drowning them.
 let warnedMissingConfig = false;
+let warnedNotLive = false;
 
 export async function sendCapiEvent(event: CapiEvent): Promise<void> {
+  if (!TRACKING_LIVE) {
+    if (!warnedNotLive) {
+      warnedNotLive = true;
+      console.warn('CAPI events are off in development so test orders do not count as real ones. Set NEXT_PUBLIC_TRACK_IN_DEV=1 to send them.');
+    }
+    return;
+  }
   if (!PIXEL_ID || !ACCESS_TOKEN) {
     if (!warnedMissingConfig) {
       warnedMissingConfig = true;

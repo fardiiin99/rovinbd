@@ -27,31 +27,43 @@ export default function Hero() {
 
   return (
     <section ref={sectionRef} className="beyond-hero relative w-full" aria-label="Rovin">
-      <div className="pointer-events-none absolute inset-0 z-10">
-        <img src={characterUrl} alt="Character with electric-blue braids, silver beads, a black paisley forehead bandana, and a neon-green turtleneck looking upward" fetchPriority="high" className="beyond-character absolute bottom-0 left-1/2 block w-auto max-w-none -translate-x-1/2" />
+      <div className="beyond-title-wrap absolute inset-x-0 top-0 z-[5] flex flex-col items-center">
+        <div className="beyond-title relative select-none">
+          <span aria-hidden="true" className="beyond-title-layer beyond-title-blue">ROVIN</span>
+          <span aria-hidden="true" className="beyond-title-layer beyond-title-orange">ROVIN</span>
+          <span aria-hidden="true" className="beyond-title-layer beyond-title-green">ROVIN</span>
+          <h1 className="relative text-white">ROVIN</h1>
+        </div>
+        <p className="beyond-tagline md:hidden">Street · Fashion · Bold bandanas</p>
       </div>
-      <div className="beyond-overlay sticky top-0 w-full">
-        <div className="absolute inset-0 flex items-start justify-center pt-[5vh] md:pt-[3vh]">
-          <div className="beyond-title relative select-none">
-            <span aria-hidden="true" className="beyond-title-layer beyond-title-blue">ROVIN</span>
-            <span aria-hidden="true" className="beyond-title-layer beyond-title-orange">ROVIN</span>
-            <span aria-hidden="true" className="beyond-title-layer beyond-title-green">ROVIN</span>
-            <h1 className="relative text-white">ROVIN</h1>
-            <p className="beyond-tagline md:hidden">Street · Fashion · Bold bandanas</p>
+
+      <img
+        src={characterUrl}
+        alt="Character with electric-blue braids, silver beads, a black paisley forehead bandana, and a neon-green turtleneck looking upward"
+        fetchPriority="high"
+        className="beyond-character pointer-events-none absolute left-1/2 z-10 block w-auto max-w-none -translate-x-1/2"
+      />
+
+      <div className="beyond-words pointer-events-none absolute inset-x-0 z-20 hidden md:flex items-end justify-between px-[5vw]">
+        {columns.map((words, side) => (
+          <div key={side} className={`beyond-word-column flex flex-col gap-1 ${side === 1 ? 'items-end' : ''}`}>
+            {words.map((word, wordIndex) => (
+              <span key={word} className={`beyond-word select-none uppercase ${side === 1 ? 'text-right' : ''}`} aria-label={word}>
+                {word.split('').map((letter, letterIndex) => (
+                  <span
+                    key={letterIndex}
+                    aria-hidden="true"
+                    className="beyond-ripple"
+                    style={{ animationDelay: `${(wordIndex * 3 + letterIndex) * 90}ms` }}
+                  >
+                    {letter}
+                  </span>
+                ))}
+              </span>
+            ))}
           </div>
-        </div>
-        <div className="beyond-words pointer-events-none absolute inset-0 hidden md:flex items-end justify-between px-[6vw]">
-          {columns.map((words, side) => (
-            <div key={side} className={`beyond-word-column flex flex-col gap-2 ${side === 1 ? 'items-end' : ''}`}>
-              {words.map((word, index) => (
-                <span key={word} className={`beyond-word select-none uppercase ${side === 1 ? 'text-right' : ''}`} style={{ transform: `translateX(calc(${(side === 0 ? -1 : 1) * 20}px * (1 - var(--progress))))`, transitionDelay: `${index * 40}ms` }}>{word}</span>
-              ))}
-            </div>
-          ))}
-        </div>
+        ))}
       </div>
     </section>
   );
 }
-
-

@@ -1,19 +1,23 @@
 html:has(.beyond-home) { scroll-behavior: smooth; }
 body:has(.beyond-home) { overflow-x: hidden; }
 .beyond-home { font-family: 'Inter', sans-serif; background: #000; }
+
+/* The character starts where the title ends, so his head sits under "ROVIN"
+   at every width. --char-top is derived from the same values that size the
+   title; the hero grows to fit the character below it. */
 .beyond-hero {
   --progress: 0;
-  /* One screen tall on phones; the scroll-driven reveal only runs on desktop. */
-  /* 4rem = the store header above the hero. */
-  height: calc(100svh - 4rem);
-  min-height: 540px;
+  --title-size: clamp(5.5rem, 27vw, 28rem);
+  --title-top: 5vh;
+  --title-drop: 14px;      /* deepest stacked title layer */
+  --title-extra: 2.75rem;  /* tagline under the title (phones only) */
+  --char-top: calc(var(--title-top) + var(--title-size) * 0.85 + var(--title-drop) + var(--title-extra) + 0.5rem);
+  height: max(calc(100svh - 4rem), calc(var(--char-top) + 420px));
   background: #EC612C;
-  /* Clip without creating a scroll container so the overlay remains sticky. */
   overflow: clip;
 }
-.beyond-overlay { z-index: 5; height: calc(100svh - 4rem); min-height: 540px; }
-.beyond-character { height: 84%; }
-.beyond-title { font-family: 'Bamboly Demo', sans-serif; font-size: clamp(5.5rem, 27vw, 28rem); line-height: 0.85; letter-spacing: -0.025em; }
+.beyond-title-wrap { padding-top: var(--title-top); }
+.beyond-title { font-family: 'Bamboly Demo', sans-serif; font-size: var(--title-size); line-height: 0.85; letter-spacing: -0.025em; }
 .beyond-title-layer { position: absolute; inset: 0; }
 .beyond-title-blue { color: #89CFF0; transform: translateY(14px); }
 .beyond-title-orange { color: #EC612C; transform: translateY(9px); }
@@ -28,26 +32,48 @@ body:has(.beyond-home) { overflow-x: hidden; }
   text-transform: uppercase;
   color: #fff;
 }
-.beyond-words { bottom: 10vh; }
-.beyond-word-column { opacity: calc(0.7 + var(--progress) * 0.3); }
+/* The image's top 31.9% is transparent, so size it so its visible top (the
+   head) lands on --char-top while its bottom stays on the hero's bottom. */
+.beyond-character { bottom: 0; height: calc((100% - var(--char-top)) / 0.681); }
+
+.beyond-words { bottom: 7%; }
+.beyond-word-column { opacity: calc(0.85 + var(--progress) * 0.15); }
 .beyond-word {
+  display: block;
   font-family: 'Poppins', sans-serif;
-  font-weight: 700;
-  font-size: clamp(1.5rem, 3.4vw, 3.75rem);
+  font-weight: 800;
+  font-size: clamp(2rem, 4.2vw, 4.75rem);
   line-height: 1.05;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   color: #fff;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
-  transition: transform 0.05s linear;
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.2);
 }
+/* A wave runs through the letters: each one rises in turn, offset by its delay. */
+.beyond-ripple {
+  display: inline-block;
+  animation: beyond-ripple 2.4s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes beyond-ripple {
+  0%, 60%, 100% { transform: translateY(0); color: #fff; }
+  30% { transform: translateY(-0.16em); color: #FFE7D6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .beyond-ripple { animation: none; }
+}
+
 .beyond-marquee-copy { font-family: 'Bamboly Demo', sans-serif; color: #EC612C; font-size: clamp(2.5rem, 6vw, 5rem); line-height: 1; padding-right: 0.25em; }
 @keyframes marquee-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 .marquee-track { width: max-content; animation: marquee-scroll 18s linear infinite; }
+
 @media (min-width: 768px) {
-  .beyond-hero { height: 120vh; min-height: 0; }
-  .beyond-overlay { height: 100vh; min-height: 0; }
-  .beyond-character { height: 115%; min-height: 80%; }
-  .beyond-title { font-size: clamp(7.5rem, 30vw, 28rem); }
+  .beyond-hero {
+    --title-size: clamp(7.5rem, 30vw, 28rem);
+    --title-top: 3vh;
+    --title-drop: 36px;
+    --title-extra: 0px;
+    height: calc(var(--char-top) + 80vh);
+  }
   .beyond-title-blue { transform: translateY(36px); }
   .beyond-title-orange { transform: translateY(24px); }
   .beyond-title-green { transform: translateY(12px); }

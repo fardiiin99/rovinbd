@@ -8,6 +8,7 @@ import { groupCaptions, pickClips, type AutoClip, type Energy } from '@/lib/auto
 import { transcribeFile, WHISPER_MODELS, whisperEngine, type ModelId, type Progress, type SpeechEngine } from './transcribe';
 import { buildTrack, cropFraction, panForCenter, trackX, type FaceSample, type Track } from '@/lib/reframe';
 import { loadMediapipe, scanFaces, type FaceDetectorLoader } from './facetrack';
+import { fileNameFromTitle } from '@/lib/videolink';
 
 type FaceScan = { start: number; end: number; samples: FaceSample[] };
 type Range = { start: number; end: number };
@@ -232,6 +233,115 @@ function TimeInput({ value, onChange, className = '' }: { value: number; onChang
   );
 }
 
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Cancelled', 'AbortError')); }, { once: true });
+  });
+
+/** "Paste a YouTube / TikTok link": the server downloads it, then it streams into the editor. */
+function LinkImport({ onFile, onError, disabled }: { onFile: (f: File) => void; onError: (m: string) => void; disabled?: boolean }) {
+  const [url, setUrl] = useState('');
+  const [state, setState] = useState<{ text: string; value: number } | null>(null);
+  const jobRef = useRef<{ id?: string; ac: AbortController } | null>(null);
+
+  const run = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim() || state) return;
+    onError('');
+    const ac = new AbortController();
+    jobRef.current = { ac };
+    try {
+      setState({ text: 'Starting the download…', value: 0 });
+      const r = await fetch('/api/admin/clipper/import', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }), signal: ac.signal,
+      });
+      let job = await r.json();
+      if (!r.ok) throw new Error(job.error || 'Could not start the download.');
+      jobRef.current.id = job.id;
+      while (job.status === 'downloading') {
+        await sleep(1000, ac.signal);
+        const s = await fetch(`/api/admin/clipper/import/${job.id}`, { signal: ac.signal, cache: 'no-store' });
+        const next = await s.json();
+        if (!s.ok) throw new Error(next.error || 'The download stopped.');
+        job = next;
+        const what = job.part > 1 ? 'audio' : 'video';
+        setState({
+          text: `Downloading ${job.title ? `“${job.title}”` : 'the video'} on the server (${what})… ${Math.round(job.progress)}%`,
+          value: (Math.min(job.part, 2) - 1) * 0.3 + (job.progress / 100) * (job.part > 1 ? 0.3 : 0.5),
+        });
+      }
+      if (job.status === 'error') throw new Error(job.error || 'The download failed.');
+
+      const f = await fetch(`/api/admin/clipper/import/${job.id}/file`, { signal: ac.signal, cache: 'no-store' });
+      if (!f.ok || !f.body) throw new Error('Could not load the downloaded video.');
+      const total = Number(f.headers.get('content-length')) || job.size || 0;
+      const reader = f.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let got = 0;
+      let shown = -1;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.length;
+        const pct = total ? Math.floor((got / total) * 100) : 0;
+        if (pct !== shown) {
+          shown = pct;
+          setState({ text: `Loading into the editor… ${pct}%`, value: 0.6 + (total ? got / total : 0) * 0.4 });
+        }
+      }
+      const type = f.headers.get('content-type') || 'video/mp4';
+      const title = decodeURIComponent(f.headers.get('x-video-title') || 'video');
+      onFile(new File(chunks as BlobPart[], fileNameFromTitle(title, type.includes('webm') ? 'webm' : 'mp4'), { type }));
+      setUrl('');
+    } catch (err) {
+      if (!ac.signal.aborted) onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setState(null);
+      jobRef.current = null;
+    }
+  };
+
+  const cancel = () => {
+    const j = jobRef.current;
+    if (!j) return;
+    j.ac.abort();
+    if (j.id) fetch(`/api/admin/clipper/import/${j.id}`, { method: 'DELETE' }).catch(() => {});
+  };
+
+  return (
+    <form onSubmit={run} className="card p-4 space-y-3">
+      <label className="label" htmlFor="video-link">Or paste a YouTube or TikTok link</label>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          id="video-link"
+          className="input flex-1"
+          inputMode="url"
+          placeholder="https://www.youtube.com/watch?v=…"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          disabled={!!state || disabled}
+        />
+        {state ? (
+          <button type="button" className="btn btn-outline" onClick={cancel}>Cancel</button>
+        ) : (
+          <button type="submit" className="btn btn-primary" disabled={!url.trim() || disabled}>Import video</button>
+        )}
+      </div>
+      {state && (
+        <div className="space-y-1">
+          <ProgressBar value={state.value} />
+          <p className="text-xs text-stone-600">{state.text}</p>
+        </div>
+      )}
+      <p className="text-xs text-stone-500">
+        Downloads up to 1080p, up to 3 hours long. Only import videos you own or have permission to use.
+      </p>
+    </form>
+  );
+}
+
 function ScorePill({ score }: { score: number }) {
   const tone = score >= 70 ? 'bg-emerald-100 text-emerald-800' : score >= 50 ? 'bg-amber-100 text-amber-800' : 'bg-stone-100 text-stone-700';
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full tabular-nums ${tone}`}>Score {score}</span>;
@@ -256,11 +366,13 @@ export type ClipperProps = {
   modelsUnavailable?: string;
   /** Face detector; defaults to MediaPipe in the browser. */
   faceLoader?: FaceDetectorLoader;
+  /** Show "paste a YouTube / TikTok link" (needs the site's server). */
+  linkImport?: boolean;
 };
 
 export default function Clipper({
   saveFile = browserSave, subtitleExport = 'download', speechEngine = whisperEngine, modelsUnavailable,
-  faceLoader = loadMediapipe,
+  faceLoader = loadMediapipe, linkImport = true,
 }: ClipperProps = {}) {
   const speechUnavailable = modelsUnavailable;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -932,6 +1044,7 @@ export default function Clipper({
       )}
 
       {!videoUrl ? (
+        <div className="space-y-4">
         <label
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -945,6 +1058,8 @@ export default function Clipper({
           <div className="text-sm text-stone-500 mt-1">A podcast, interview, stream or talk. MP4, MOV or WebM.</div>
           <input type="file" accept="video/*" className="sr-only" onChange={(e) => loadFile(e.target.files?.[0])} />
         </label>
+        {linkImport && <LinkImport onFile={loadFile} onError={setError} />}
+        </div>
       ) : (
         <>
           {/* Auto clips */}

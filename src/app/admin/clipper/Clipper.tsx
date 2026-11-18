@@ -98,18 +98,17 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, raw: string, W: number, H: 
   });
 }
 
-function download(url: string, name: string) {
+/** Default save: a normal browser download. Hosts that block those can pass their own. */
+async function browserSave(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
   a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-function downloadText(text: string, name: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-  download(url, name);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+type Ask = { message: string; yesLabel: string; noLabel?: string; onYes: () => void; onNo?: () => void };
 
 function TimeInput({ value, onChange, className = '' }: { value: number; onChange: (n: number) => void; className?: string }) {
   const [text, setText] = useState(formatShort(value));
@@ -131,7 +130,14 @@ function TimeInput({ value, onChange, className = '' }: { value: number; onChang
   );
 }
 
-export default function Clipper() {
+export type ClipperProps = {
+  /** Saves a generated file. Defaults to a browser download. */
+  saveFile?: (blob: Blob, name: string) => Promise<void>;
+  /** 'copy' puts .srt/.vtt text on the clipboard instead of saving a file. */
+  subtitleExport?: 'download' | 'copy';
+};
+
+export default function Clipper({ saveFile = browserSave, subtitleExport = 'download' }: ClipperProps = {}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<AudioRig | null>(null);
@@ -159,6 +165,8 @@ export default function Clipper() {
   const [script, setScript] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [mime, setMime] = useState('');
+  const [ask, setAsk] = useState<Ask | null>(null);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => setMime(pickMime()), []);
 
@@ -199,9 +207,11 @@ export default function Clipper() {
       if (!v || !c || v.readyState < 2) return;
 
       const job = exportRef.current;
-      if (job && !v.paused && (v.currentTime >= job.end || v.ended)) {
+      // Not gated on !paused: when the clip runs to the end of the file the video
+      // pauses itself, and the recorder still has to be stopped.
+      if (job && job.rec.state === 'recording' && (v.currentTime >= job.end || v.ended)) {
         v.pause();
-        if (job.rec.state !== 'inactive') job.rec.stop();
+        job.rec.stop();
       }
       if (!job && stopAtRef.current !== null && v.currentTime >= stopAtRef.current) {
         v.pause();
@@ -300,19 +310,53 @@ export default function Clipper() {
       return;
     }
     setError('');
-    if (cues.length && !confirm(`Replace your ${cues.length} subtitle(s) with the ${parsed.length} from this file?\n\nOK = replace, Cancel = add them to the existing ones.`)) {
-      setCues((cs) => sortCues([...cs, ...parsed]));
-    } else setCues(parsed);
+    if (!cues.length) return setCues(parsed);
+    setAsk({
+      message: `You already have ${cues.length} subtitle(s). Replace them with the ${parsed.length} from this file, or add these to them?`,
+      yesLabel: 'Replace',
+      noLabel: 'Add to existing',
+      onYes: () => setCues(parsed),
+      onNo: () => setCues((cs) => sortCues([...cs, ...parsed])),
+    });
   };
 
   const applyScript = () => {
     const made = distributeLines(script, clipStart, clipEnd);
     if (!made.length) return;
     const outside = cues.filter((c) => c.end <= clipStart || c.start >= clipEnd);
-    if (outside.length !== cues.length && !confirm('Replace the subtitles inside the clip with these lines?')) return;
-    setCues(sortCues([...outside, ...made]));
-    setScriptOpen(false);
-    setScript('');
+    const apply = () => {
+      setCues(sortCues([...outside, ...made]));
+      setScriptOpen(false);
+      setScript('');
+    };
+    if (outside.length === cues.length) return apply();
+    setAsk({ message: 'Replace the subtitles inside the clip with these lines?', yesLabel: 'Replace', onYes: apply });
+  };
+
+  const exportSubs = async (kind: 'srt' | 'vtt') => {
+    const clipped = clipCues(cues, clipStart, clipEnd);
+    const text = kind === 'srt' ? toSrt(clipped) : toVtt(clipped);
+    if (subtitleExport === 'copy') {
+      try {
+        await navigator.clipboard.writeText(text);
+        setNotice(`Copied the .${kind} text. Paste it into a text file named ${baseName}-clip.${kind}.`);
+      } catch {
+        setError('Could not copy to the clipboard.');
+      }
+      return;
+    }
+    await saveFile(new Blob([text], { type: 'text/plain;charset=utf-8' }), `${baseName}-clip.${kind}`);
+  };
+
+  const saveVideo = async () => {
+    if (!result) return;
+    try {
+      const blob = await (await fetch(result.url)).blob();
+      await saveFile(blob, `${baseName}-clip.${result.ext}`);
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      if (code !== 'declined') setError(`Could not save the video${code ? ` (${code})` : ''}.`);
+    }
   };
 
   const baseName = fileName.replace(/\.[^.]+$/, '') || 'clip';
@@ -422,6 +466,26 @@ export default function Clipper() {
       />
 
       {error && <div className="card p-3 text-sm text-red-700 border-red-200 bg-red-50">{error}</div>}
+      {notice && (
+        <div className="card p-3 text-sm text-emerald-800 border-emerald-200 bg-emerald-50 flex gap-3 items-start">
+          <span className="flex-1">{notice}</span>
+          <button className="text-emerald-700 hover:underline" onClick={() => setNotice('')}>Dismiss</button>
+        </div>
+      )}
+      {ask && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true">
+          <div className="card p-5 max-w-sm w-full space-y-4">
+            <p className="text-sm text-stone-800">{ask.message}</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button className="btn btn-ghost text-sm py-1.5 px-3" onClick={() => setAsk(null)}>Cancel</button>
+              {ask.noLabel && (
+                <button className="btn btn-outline text-sm py-1.5 px-3" onClick={() => { ask.onNo?.(); setAsk(null); }}>{ask.noLabel}</button>
+              )}
+              <button className="btn btn-primary text-sm py-1.5 px-3" autoFocus onClick={() => { ask.onYes(); setAsk(null); }}>{ask.yesLabel}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!videoUrl ? (
         <label
@@ -580,9 +644,9 @@ export default function Clipper() {
                 Import .srt / .vtt
                 <input type="file" accept=".srt,.vtt,text/vtt" className="sr-only" onChange={(e) => { importSubs(e.target.files?.[0]); e.target.value = ''; }} />
               </label>
-              <button className="btn btn-outline text-sm py-1.5 px-3" disabled={!cues.length} onClick={() => downloadText(toSrt(clipCues(cues, clipStart, clipEnd)), `${baseName}-clip.srt`)}>Download .srt</button>
-              <button className="btn btn-outline text-sm py-1.5 px-3" disabled={!cues.length} onClick={() => downloadText(toVtt(clipCues(cues, clipStart, clipEnd)), `${baseName}-clip.vtt`)}>.vtt</button>
-              <button className="btn btn-ghost text-sm py-1.5 px-3 text-red-600" disabled={!cues.length} onClick={() => { if (confirm('Delete all subtitles?')) setCues([]); }}>Clear</button>
+              <button className="btn btn-outline text-sm py-1.5 px-3" disabled={!cues.length} onClick={() => exportSubs('srt')}>{subtitleExport === 'copy' ? 'Copy .srt' : 'Download .srt'}</button>
+              <button className="btn btn-outline text-sm py-1.5 px-3" disabled={!cues.length} onClick={() => exportSubs('vtt')}>.vtt</button>
+              <button className="btn btn-ghost text-sm py-1.5 px-3 text-red-600" disabled={!cues.length} onClick={() => setAsk({ message: `Delete all ${cues.length} subtitle(s)?`, yesLabel: 'Delete all', onYes: () => setCues([]) })}>Clear</button>
             </div>
 
             {scriptOpen && (
@@ -673,7 +737,7 @@ export default function Clipper() {
                 <video src={result.url} controls playsInline className="w-full sm:w-72 max-h-80 rounded bg-black" />
                 <div className="space-y-2">
                   <div className="text-sm">Done — {(result.size / 1024 / 1024).toFixed(1)} MB {result.ext.toUpperCase()}</div>
-                  <button className="btn btn-primary" onClick={() => download(result.url, `${baseName}-clip.${result.ext}`)}>Download video</button>
+                  <button className="btn btn-primary" onClick={saveVideo}>Download video</button>
                   {result.ext === 'webm' && (
                     <p className="text-xs text-stone-500 max-w-xs">
                       WebM uploads fine to Facebook, YouTube and TikTok on the web. For MP4, export from a recent Chrome or Safari.

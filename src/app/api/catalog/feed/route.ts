@@ -19,7 +19,7 @@ function availability(p: Product): string {
 export async function GET(req: Request) {
   const host = req.headers.get('host') || 'www.rovinbd.com';
   const baseUrl = `https://${host}`;
-  const products = await db.listProducts();
+  const products = await db.listStoreProducts();
 
   const absImage = (image: string) =>
     image.startsWith('http') ? image : `${baseUrl}${image.startsWith('/') ? '' : '/'}${image}`;

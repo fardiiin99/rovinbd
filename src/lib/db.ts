@@ -22,8 +22,14 @@ export type Product = {
   variants: ProductVariant[];
   variantStyle?: 'image' | 'size';
   images?: string[]; // extra gallery photos, shown after `image`
+  archived?: boolean; // hidden from the storefront and checkout, kept in admin
   createdAt: number;
 };
+
+// Sold out: every variant at 0, or no variants and product stock at 0.
+export function isSoldOut(p: Pick<Product, 'stock' | 'variants'>): boolean {
+  return p.variants.length > 0 ? p.variants.every((v) => v.stock <= 0) : p.stock <= 0;
+}
 
 export type OrderItem = {
   productId: string;
@@ -180,6 +186,7 @@ function rowToProduct(r: any): Product {
     category: r.category, featured: !!r.featured, variants,
     variantStyle: (r.variant_style as 'image' | 'size') || 'image',
     images: parseStringArray(r.images),
+    archived: r.archived === true,
     createdAt: Number(r.created_at),
   };
 }
@@ -274,6 +281,7 @@ function ready(): Promise<void> {
 async function ensureProductionColumns() {
   await ensureProductImagesColumn();
   await ensureBlackFridayColumns();
+  await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`;
   await ensureGalleryTable();
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_consent boolean NOT NULL DEFAULT false`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_context jsonb`;
@@ -340,6 +348,7 @@ async function ensureSchema() {
   await ensureProductImagesColumn();
   await ensureGalleryTable();
   await ensureBlackFridayColumns();
+  await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`;
   await seedIfEmpty();
   await migrateStorefrontCatalog();
 }
@@ -454,10 +463,20 @@ export const db = {
       return rows.map(rowToProduct);
     });
   },
+  // Storefront list: archived products are left out everywhere customers can see.
+  async listStoreProducts(): Promise<Product[]> {
+    return (await db.listProducts()).filter((p) => !p.archived);
+  },
+  async setProductArchived(id: string, archived: boolean): Promise<boolean> {
+    await ready();
+    const { rowCount } = await sql`UPDATE products SET archived = ${archived} WHERE id = ${id}`;
+    invalidateStorefrontCache();
+    return (rowCount ?? 0) > 0;
+  },
   async featuredProducts(): Promise<Product[]> {
     return cachedRead('featured-products', async () => {
       await ready();
-      const { rows } = await sql`SELECT * FROM products WHERE featured = true ORDER BY created_at DESC`;
+      const { rows } = await sql`SELECT * FROM products WHERE featured = true AND archived = false ORDER BY created_at DESC`;
       return rows.map(rowToProduct);
     });
   },

@@ -21,7 +21,7 @@ export default async function Home() {
     db.getContent(),
     db.featuredProducts(),
     db.listCategoryTiles(),
-    db.listProducts(),
+    db.listStoreProducts(),
     db.listGalleryItems(),
   ]);
   // Products marked "Featured" in admin; the newest products if none are.

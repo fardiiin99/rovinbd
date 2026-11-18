@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       }
       const product = await db.getProduct(line.productId);
       const variant = product?.variants.find((entry) => entry.id === line.variantId);
-      if (!product || (product.variants.length > 0 && !variant) || (line.variantId && !variant)) {
+      if (!product || product.archived || (product.variants.length > 0 && !variant) || (line.variantId && !variant)) {
         return NextResponse.json({ error: 'A cart item is no longer available' }, { status: 409 });
       }
       const existing = items.find((item) => item.productId === product.id && item.variantId === variant?.id);

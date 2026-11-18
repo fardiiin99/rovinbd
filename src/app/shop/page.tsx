@@ -10,7 +10,7 @@ type ShopParams = { cat?: string; q?: string; sort?: string };
 
 export default async function ShopPage({ searchParams }: { searchParams: Promise<ShopParams> }) {
   const { cat, q, sort } = await searchParams;
-  const [content, all, cats] = await Promise.all([db.getContent(), db.listProducts(), db.listProductCategories()]);
+  const [content, all, cats] = await Promise.all([db.getContent(), db.listStoreProducts(), db.listProductCategories()]);
   const catLabel = (slug: string) => cats.find((c) => c.value === slug)?.label || slug;
   const activeCat = cat?.toLowerCase();
   const query = (q || '').trim();

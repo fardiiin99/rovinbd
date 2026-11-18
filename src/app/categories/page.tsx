@@ -14,7 +14,7 @@ export default async function CategoriesPage() {
     db.getContent(),
     db.listProductCategories(),
     db.listCategoryTiles(),
-    db.listProducts(),
+    db.listStoreProducts(),
   ]);
 
   const productTiles = tiles.filter((tile) => tile.kind === 'product');

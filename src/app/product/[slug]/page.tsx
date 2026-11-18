@@ -13,9 +13,9 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
     db.getContent(),
     db.getProductBySlug(slug),
     db.listProductCategories(),
-    db.listProducts(),
+    db.listStoreProducts(),
   ]);
-  if (!product) notFound();
+  if (!product || product.archived) notFound();
   const categoryLabel = cats.find((c) => c.value === product.category)?.label || product.category;
   const related = allProducts.filter((p) => p.category === product.category && p.id !== product.id);
 

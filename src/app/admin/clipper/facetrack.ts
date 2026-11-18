@@ -7,30 +7,55 @@ const MP_VERSION = '1.2.0';
 const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+// Face landmarks (≈ 3.7 MB): used to measure how open each mouth is, to tell who is talking.
+const LANDMARK_URL =
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 
 type MpDetection = { categories: { score: number }[]; boundingBox?: { originX: number; originY: number; width: number; height: number } };
 type MpDetector = { detect(img: HTMLCanvasElement): { detections: MpDetection[] } };
+type MpLandmarker = { detect(img: HTMLCanvasElement): { faceLandmarks: { x: number; y: number }[][] } };
 
 /** Turns one image into face boxes. Swappable so tests can run without the real model. */
 export type FaceDetectFn = (img: HTMLCanvasElement) => FaceBox[];
-export type FaceDetectorLoader = () => Promise<FaceDetectFn>;
+/** Mouth opening (lip gap ÷ face height) of the one face filling the image, or null. */
+export type MouthFn = (img: HTMLCanvasElement) => number | null;
+export type FaceModels = { detect: FaceDetectFn; mouth?: MouthFn };
+export type FaceDetectorLoader = () => Promise<FaceModels>;
 
-let cached: Promise<FaceDetectFn> | null = null;
+let cached: Promise<FaceModels> | null = null;
 
-/** Loads MediaPipe's face detector once (GPU when available, CPU otherwise). */
+/** Loads MediaPipe's face detector and (if it loads) the face landmarker, once. */
 export const loadMediapipe: FaceDetectorLoader = () => {
   if (cached) return cached;
   cached = (async () => {
     const url = `${MP_BASE}/vision_bundle.mjs`;
     const mod = await import(/* webpackIgnore: true */ url);
     const files = await mod.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
-    // CPU: this model is tiny, so it is fast there, and its scores are steadier than on GPU.
+    // CPU: these models are small, so they are fast there, and scores are steadier than on GPU.
     const det = (await mod.FaceDetector.createFromOptions(files, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
       runningMode: 'IMAGE',
       minDetectionConfidence: 0.5,
     })) as MpDetector;
-    return (img: HTMLCanvasElement) =>
+    let mouth: MouthFn | undefined;
+    try {
+      const lm = (await mod.FaceLandmarker.createFromOptions(files, {
+        baseOptions: { modelAssetPath: LANDMARK_URL, delegate: 'CPU' },
+        runningMode: 'IMAGE',
+        numFaces: 1,
+      })) as MpLandmarker;
+      mouth = (img) => {
+        const p = lm.detect(img).faceLandmarks[0];
+        if (!p) return null;
+        // 13/14: inner upper/lower lip; 10/152: forehead/chin.
+        const d = (a: number, b: number) => Math.hypot(p[a].x - p[b].x, p[a].y - p[b].y);
+        const face = d(10, 152);
+        return face > 0 ? d(13, 14) / face : null;
+      };
+    } catch {
+      mouth = undefined; // Without it we still follow the main face.
+    }
+    const detect: FaceDetectFn = (img) =>
       det.detect(img).detections.flatMap((d) => {
         const b = d.boundingBox;
         if (!b) return [];
@@ -42,6 +67,7 @@ export const loadMediapipe: FaceDetectorLoader = () => {
           score: d.categories[0]?.score ?? 0,
         }];
       });
+    return { detect, mouth };
   })();
   cached.catch(() => { cached = null; });
   return cached;
@@ -95,7 +121,30 @@ function detectTiled(detect: FaceDetectFn, frame: HTMLCanvasElement, tile: HTMLC
   return mergeFaces(faces.filter((f) => f.score >= 0.6));
 }
 
-/** Samples [start, end] at `fps` and returns the faces found at each moment. */
+/**
+ * Measures each face's mouth opening on a zoomed crop taken from the full-resolution video,
+ * so even small faces in a wide shot are big enough for the landmark model.
+ */
+function addMouths(faces: FaceBox[], v: HTMLVideoElement, crop: HTMLCanvasElement, mouth: MouthFn): FaceBox[] {
+  const VW = v.videoWidth;
+  const VH = v.videoHeight;
+  const cctx = crop.getContext('2d', { willReadFrequently: true })!;
+  // Only the three biggest faces: background faces are rarely the speaker.
+  const big = new Set([...faces].sort((a, b) => b.w * b.h - a.w * a.h).slice(0, 3));
+  return faces.map((f) => {
+    if (!big.has(f)) return f;
+    const side = Math.max(f.w * VW, f.h * VH) * 1.8;
+    const sx = f.cx * VW - side / 2;
+    const sy = f.cy * VH - side / 2;
+    cctx.fillStyle = '#000';
+    cctx.fillRect(0, 0, crop.width, crop.height);
+    cctx.drawImage(v, sx, sy, side, side, 0, 0, crop.width, crop.height);
+    const m = mouth(crop);
+    return m === null ? f : { ...f, mouth: m };
+  });
+}
+
+/** Samples [start, end] at `fps` and returns the faces (with mouth openings) found at each moment. */
 export async function scanFaces(
   src: string,
   start: number,
@@ -103,9 +152,9 @@ export async function scanFaces(
   onProgress: (fraction: number) => void,
   signal: AbortSignal,
   loader: FaceDetectorLoader = loadMediapipe,
-  fps = 4,
+  fps = 5,
 ): Promise<FaceSample[]> {
-  const detect = await loader();
+  const { detect, mouth } = await loader();
   const v = document.createElement('video');
   v.muted = true;
   v.preload = 'auto';
@@ -120,6 +169,8 @@ export async function scanFaces(
   frame.height = Math.round(v.videoHeight * scale);
   const tile = document.createElement('canvas');
   tile.width = tile.height = 320;
+  const crop = document.createElement('canvas');
+  crop.width = crop.height = 256;
   const fctx = frame.getContext('2d', { willReadFrequently: true })!;
 
   const out: FaceSample[] = [];
@@ -131,7 +182,8 @@ export async function scanFaces(
       const t = Math.min(end, start + i * step);
       await seek(v, t);
       fctx.drawImage(v, 0, 0, frame.width, frame.height);
-      out.push({ t, faces: detectTiled(detect, frame, tile) });
+      const faces = detectTiled(detect, frame, tile);
+      out.push({ t, faces: mouth && faces.length > 1 ? addMouths(faces, v, crop, mouth) : faces });
       onProgress((i + 1) / (total + 1));
     }
   } finally {

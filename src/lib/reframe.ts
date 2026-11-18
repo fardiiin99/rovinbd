@@ -1,12 +1,115 @@
 // Face-following reframe ("auto reframe"): turns per-frame face detections into a smooth
 // virtual-camera path for cropping wide video to vertical. Pure functions, no DOM.
 
-/** One detected face, in 0–1 coordinates of the source frame. */
-export type FaceBox = { cx: number; cy: number; w: number; h: number; score: number };
+/**
+ * One detected face, in 0–1 coordinates of the source frame. `mouth` is how open the mouth
+ * is (lip gap ÷ face height), when it could be measured.
+ */
+export type FaceBox = { cx: number; cy: number; w: number; h: number; score: number; mouth?: number };
 export type FaceSample = { t: number; faces: FaceBox[] };
 
-/** Crop-centre path: x in 0–1 of the source width, at ascending times. `cut[i]` = hard cut into sample i. */
-export type Track = { t: number[]; x: number[]; cut: boolean[] };
+/**
+ * Crop-centre path: x in 0–1 of the source width, at ascending times. `cut[i]` = hard cut into
+ * sample i. `mode` says whether it followed the active speaker or just the main face.
+ */
+export type Track = { t: number[]; x: number[]; cut: boolean[]; mode: 'speaker' | 'face' };
+
+export type SpeakerOptions = {
+  /** Seconds of mouth movement to look at around each moment. */
+  window?: number;
+  /** Minimum average mouth change per sample to count as talking. */
+  minActivity?: number;
+  /** How long a new speaker must keep talking before the camera switches. */
+  switchHold?: number;
+  /** Whether anyone is speaking at time t (e.g. from the transcript). Unknown = assume yes. */
+  speechAt?: (t: number) => boolean;
+};
+
+/** Links faces across samples into people by position. Returns a person id per face per sample. */
+export function linkPeople(samples: FaceSample[], maxJump = 0.1): number[][] {
+  const lastX: number[] = [];
+  return samples.map((s) => {
+    const taken = new Set<number>();
+    // Bigger faces claim their person first.
+    const order = s.faces.map((_, i) => i).sort((a, b) => area(s.faces[b]) - area(s.faces[a]));
+    const ids: number[] = new Array(s.faces.length);
+    for (const i of order) {
+      const f = s.faces[i];
+      let best = -1;
+      let bestD = maxJump;
+      lastX.forEach((x, p) => {
+        const d = Math.abs(x - f.cx);
+        if (!taken.has(p) && d < bestD) { best = p; bestD = d; }
+      });
+      if (best < 0) { best = lastX.length; lastX.push(f.cx); }
+      lastX[best] = f.cx;
+      taken.add(best);
+      ids[i] = best;
+    }
+    return ids;
+  });
+}
+
+/**
+ * Picks who is talking in each sample: the person whose mouth moves the most over a short
+ * window, clearly more than anyone else, while speech is heard. The camera stays on the
+ * current speaker through pauses and overlaps, and switches only once a new speaker has
+ * talked for `switchHold` seconds. Returns the target x per sample (null = no face).
+ */
+export function speakerTargets(samples: FaceSample[], opts: SpeakerOptions = {}): (number | null)[] {
+  const { window = 1, minActivity = 0.012, switchHold = 0.5, speechAt } = opts;
+  const ids = linkPeople(samples);
+
+  // Mouth readings per person over time.
+  const series = new Map<number, { t: number; m: number }[]>();
+  samples.forEach((s, i) => s.faces.forEach((f, j) => {
+    if (f.mouth === undefined) return;
+    const list = series.get(ids[i][j]) ?? [];
+    list.push({ t: s.t, m: f.mouth });
+    series.set(ids[i][j], list);
+  }));
+  // Average change between neighbouring readings: high while talking, near zero when still.
+  const activity = (p: number, t: number) => {
+    const pts = (series.get(p) ?? []).filter((x) => Math.abs(x.t - t) <= window / 2);
+    if (pts.length < 3) return 0;
+    let sum = 0;
+    for (let k = 1; k < pts.length; k++) sum += Math.abs(pts[k].m - pts[k - 1].m);
+    return sum / (pts.length - 1);
+  };
+
+  let cur: number | null = null;
+  let pend: number | null = null;
+  let pendT = 0;
+  return samples.map((s, i) => {
+    if (!s.faces.length) return null;
+    const people = ids[i];
+    const xOf = (p: number) => s.faces[people.indexOf(p)]?.cx;
+
+    let talker: number | null = null;
+    if (!speechAt || speechAt(s.t)) {
+      const acts = people.map((p) => ({ p, a: activity(p, s.t) })).sort((a, b) => b.a - a.a);
+      if (acts[0] && acts[0].a >= minActivity && (!acts[1] || acts[0].a >= acts[1].a * 1.3)) talker = acts[0].p;
+    }
+
+    if (cur === null || !people.includes(cur)) {
+      // Nobody chosen yet, or the current person left the frame: take the talker, else the biggest face.
+      const biggest = people[s.faces.indexOf(s.faces.reduce((a, b) => (area(b) > area(a) ? b : a)))];
+      cur = talker ?? biggest;
+      pend = null;
+    } else if (talker !== null && talker !== cur) {
+      if (pend !== talker) { pend = talker; pendT = s.t; }
+      if (s.t - pendT >= switchHold) { cur = talker; pend = null; }
+    } else {
+      pend = null;
+    }
+    return xOf(cur) ?? null;
+  });
+}
+
+/** True when the samples carry mouth readings for more than one person (speaker mode is possible). */
+export function hasSpeakerData(samples: FaceSample[]) {
+  return samples.some((s) => s.faces.filter((f) => f.mouth !== undefined).length >= 2);
+}
 
 const area = (f: FaceBox) => f.w * f.h;
 
@@ -70,6 +173,8 @@ export type TrackOptions = {
   /** Smoothing time constant in seconds: higher = slower, steadier camera. */
   tau?: number;
   switchHold?: number;
+  /** Whether anyone is speaking at time t; used to ignore mouth movement during silence. */
+  speechAt?: (t: number) => boolean;
 };
 
 /**
@@ -78,9 +183,11 @@ export type TrackOptions = {
  * jumps (a different person). Returns null if no face was ever found.
  */
 export function buildTrack(samples: FaceSample[], opts: TrackOptions): Track | null {
-  const { cropW, tau = 0.45, switchHold = 1 } = opts;
+  const { cropW, tau = 0.45, switchHold = 1, speechAt } = opts;
   if (!samples.length) return null;
-  const raw = pickTargets(samples, switchHold);
+  // With mouth readings for two or more people, follow whoever is talking.
+  const mode: Track['mode'] = hasSpeakerData(samples) ? 'speaker' : 'face';
+  const raw = mode === 'speaker' ? speakerTargets(samples, { speechAt }) : pickTargets(samples, switchHold);
   const firstKnown = raw.find((x) => x !== null);
   if (firstKnown === undefined || firstKnown === null) return null;
 
@@ -118,7 +225,7 @@ export function buildTrack(samples: FaceSample[], opts: TrackOptions): Track | n
     x.push(cam);
     cut.push(isCut);
   });
-  return { t, x, cut };
+  return { t, x, cut, mode };
 }
 
 /** Camera x at time `time`, interpolated; a cut switches instantly at its sample time. */

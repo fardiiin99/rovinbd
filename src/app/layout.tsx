@@ -4,6 +4,7 @@ import MetaPixel from '@/components/MetaPixel';
 import GAnalytics from '@/components/GAnalytics';
 import { META_PIXEL_ID, HAS_META_PIXEL } from '@/lib/pixel-config';
 import PromoBar from '@/components/PromoBar';
+import { SaleProvider } from '@/components/SaleContext';
 import { db } from '@/lib/db';
 import { isCampaignActive } from '@/lib/pricing';
 
@@ -83,8 +84,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </noscript>
         <MetaPixel />
         <GAnalytics />
-        <PromoBar active={saleActive} />
-        {children}
+        <SaleProvider active={saleActive}>
+          <PromoBar active={saleActive} />
+          {children}
+        </SaleProvider>
       </body>
     </html>
   );

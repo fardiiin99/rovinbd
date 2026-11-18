@@ -30,6 +30,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+# Video clipper "paste a YouTube / TikTok link": yt-dlp downloads, ffmpeg joins video and
+# audio, and yt-dlp uses this image's Node.js for YouTube's player checks. YouTube changes
+# often, so redeploy now and then to pick up the newest yt-dlp.
+RUN apk add --no-cache ffmpeg python3 py3-pip \
+ && pip install --no-cache-dir --break-system-packages "yt-dlp[default]" \
+ && yt-dlp --version
 # The standalone server expects static assets beside it.
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

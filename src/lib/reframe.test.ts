@@ -1,7 +1,9 @@
 // Run with: npm test  (Node's built-in runner; no extra dependencies)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeFaces, pickTargets, buildTrack, trackX, panForCenter, cropFraction, type FaceSample } from './reframe.ts';
+import {
+  mergeFaces, pickTargets, buildTrack, trackX, panForCenter, cropFraction, linkPeople, speakerTargets, type FaceSample,
+} from './reframe.ts';
 import { coverRect } from './subtitles.ts';
 
 const face = (cx: number, size = 0.2, score = 0.9) => ({ cx, cy: 0.4, w: size, h: size * 1.6, score });
@@ -62,6 +64,63 @@ test('buildTrack fills gaps and returns null when no face at all', () => {
   assert.equal(buildTrack(samples(0, 2, () => []), { cropW: 0.3 }), null);
   const tr = buildTrack(samples(0, 2, (t) => (t >= 1 ? [face(0.6)] : [])), { cropW: 0.3 })!;
   assert.equal(tr.x[0], 0.6); // leading gap takes the first known position
+});
+
+/**
+ * Two people the same size (left 0.25, right 0.75), sampled at 5 fps. `talker(t)` says who is
+ * talking: their mouth opens and closes irregularly; the other's stays shut with tiny noise.
+ */
+function conversation(to: number, talker: (t: number) => 'L' | 'R' | null): FaceSample[] {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const out: FaceSample[] = [];
+  for (let t = 0; t <= to + 1e-9; t += 0.2) {
+    const who = talker(t);
+    const m = (me: 'L' | 'R') => (who === me ? 0.05 + rnd() * 0.09 : 0.057 + (rnd() - 0.5) * 0.004);
+    out.push({ t: Math.round(t * 10) / 10, faces: [{ ...face(0.25), mouth: m('L') }, { ...face(0.75), mouth: m('R') }] });
+  }
+  return out;
+}
+const turns = (t: number) => (t < 5 ? 'L' : t < 10 ? 'R' : 'L') as 'L' | 'R';
+const at = (s: FaceSample[], tg: (number | null)[], t: number) => tg[s.findIndex((x) => Math.abs(x.t - t) < 0.01)];
+
+test('linkPeople keeps the same id for a person who moves a little', () => {
+  const s = [0.2, 0.22, 0.25].map((x, i) => ({ t: i, faces: [face(0.8), face(x)] }));
+  const ids = linkPeople(s);
+  assert.deepEqual(ids.map((r) => r[1]), [ids[0][1], ids[0][1], ids[0][1]]);
+  assert.notEqual(ids[0][0], ids[0][1]);
+});
+
+test('speakerTargets follows whoever is talking, switching soon after each turn', () => {
+  const s = conversation(14, turns);
+  const tg = speakerTargets(s);
+  assert.equal(at(s, tg, 3), 0.25);
+  assert.equal(at(s, tg, 5.2), 0.25); // not yet: waits for the new speaker to keep going
+  assert.equal(at(s, tg, 6.6), 0.75);
+  assert.equal(at(s, tg, 9), 0.75);
+  assert.equal(at(s, tg, 12), 0.25);
+});
+
+test('speakerTargets holds the shot through silence and while both talk', () => {
+  // Left talks, then silence (nobody), then both at once: stays on the left throughout.
+  const s = conversation(12, (t) => (t < 4 ? 'L' : t < 8 ? null : 'L'));
+  const both = s.map((x) => (x.t >= 8 ? { ...x, faces: x.faces.map((f, i) => ({ ...f, mouth: i ? x.faces[0].mouth! + 0.001 : f.mouth })) } : x));
+  const tg = speakerTargets(both);
+  assert.ok(tg.every((x) => x === 0.25), JSON.stringify(tg));
+});
+
+test('speakerTargets ignores mouth movement while the transcript says nobody speaks', () => {
+  const s = conversation(14, turns);
+  const tg = speakerTargets(s, { speechAt: (t) => t < 5 || t >= 10 });
+  assert.equal(at(s, tg, 8), 0.25); // right person "moves mouth" during silence: no switch
+});
+
+test('buildTrack uses speaker mode with mouth data and cuts between speakers', () => {
+  const tr = buildTrack(conversation(14, turns), { cropW: 0.316 })!;
+  assert.equal(tr.mode, 'speaker');
+  assert.ok(tr.cut.filter(Boolean).length >= 2);
+  assert.ok(trackX(tr, 8) > 0.6 && trackX(tr, 12) < 0.4, `${trackX(tr, 8)} ${trackX(tr, 12)}`);
+  assert.equal(buildTrack(samples(0, 2, () => [face(0.3)]), { cropW: 0.3 })!.mode, 'face');
 });
 
 test('panForCenter puts the requested centre in the middle of the crop', () => {

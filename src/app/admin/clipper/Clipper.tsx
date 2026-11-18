@@ -351,9 +351,24 @@ export default function Clipper({
   );
   const needsReframe = aspect !== 'original' && layout !== 'fit' && cropW < 0.98;
   const follow = reframe && needsReframe && !modelsUnavailable;
+  // With a transcript, mouth movement only counts while someone is actually speaking.
+  const speechAt = useMemo(() => {
+    const words = transcript?.words;
+    if (!words?.length) return undefined;
+    return (t: number) => {
+      let lo = 0;
+      let hi = words.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (words[mid].end < t - 0.3) lo = mid + 1;
+        else hi = mid;
+      }
+      return words[lo].start <= t + 0.3 && words[lo].end >= t - 0.3;
+    };
+  }, [transcript]);
   const tracks = useMemo(
-    () => faceScans.map((s) => ({ start: s.start, end: s.end, track: buildTrack(s.samples, { cropW }) as Track | null })),
-    [faceScans, cropW],
+    () => faceScans.map((s) => ({ start: s.start, end: s.end, track: buildTrack(s.samples, { cropW, speechAt }) as Track | null })),
+    [faceScans, cropW, speechAt],
   );
 
   // The render loop reads the latest settings through this ref, and repaints when they change.
@@ -1166,7 +1181,7 @@ export default function Clipper({
                     <div className="rounded-md border border-stone-200 p-2.5 space-y-2">
                       <label className="flex items-center gap-2 text-sm font-medium">
                         <input type="checkbox" checked={reframe} onChange={(e) => setReframe(e.target.checked)} className="accent-brand-600" />
-                        Auto reframe: follow faces
+                        Auto reframe: follow the speaker
                       </label>
                       {reframe && (
                         faceProgress ? (
@@ -1176,9 +1191,11 @@ export default function Clipper({
                           </div>
                         ) : cur ? (
                           <p className="text-xs text-stone-600">
-                            {cur.track
-                              ? `Following ${cur.track.cut.filter(Boolean).length ? 'the speaker, with cuts between people' : 'the face'} in this clip.`
-                              : 'No faces found in this clip, so it uses the crop position below.'}
+                            {!cur.track
+                              ? 'No faces found in this clip, so it uses the crop position below.'
+                              : cur.track.mode === 'speaker'
+                                ? `Following whoever is speaking${cur.track.cut.some(Boolean) ? ', cutting between people' : ''}.`
+                                : 'Following the face in this clip.'}
                           </p>
                         ) : (
                           <div className="flex flex-wrap items-center gap-2">

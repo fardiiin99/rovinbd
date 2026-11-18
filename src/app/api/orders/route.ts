@@ -4,6 +4,8 @@ import { sendCapiEvent, extractClientContext, preferIPv6 } from '@/lib/capi';
 import { cityToDivision } from '@/lib/bd-divisions';
 import { notifyOrderPlaced } from '@/lib/notify';
 import { sendGA4Purchase, extractGA4ClientId } from '@/lib/ga4';
+import { priceCart, isCampaignActive, gaItemPricing } from '@/lib/pricing';
+import { formatPrice } from '@/lib/format';
 
 export async function POST(req: Request) {
   try {
@@ -46,9 +48,25 @@ export async function POST(req: Request) {
         });
       }
     }
-    const subtotal = items.reduce((s: number, i: { price: number; qty: number }) => s + i.price * i.qty, 0);
+    // Priced only from the database: current product prices, the live
+    // campaign state, and the shared tier rules. Nothing price-related from
+    // the browser is trusted.
     const shipping = DELIVERY_CHARGES[deliveryZone];
-    const total = subtotal + shipping;
+    const campaignActive = isCampaignActive(await db.getBlackFridayCampaign());
+    const priced = priceCart(items, shipping, campaignActive);
+    const { subtotal, total } = priced;
+
+    // The browser sends the total it showed. If prices or the sale changed
+    // since the page loaded, stop and send the current prices back rather
+    // than charging an amount the shopper never saw.
+    if (typeof body.expectedTotal === 'number' && body.expectedTotal !== total) {
+      return NextResponse.json({
+        error: `Your total has been updated to ${formatPrice(total)}. Please check it and place your order again.`,
+        code: 'PRICE_CHANGED',
+        campaignActive,
+        prices: items.map((i) => ({ productId: i.productId, variantId: i.variantId, price: i.price })),
+      }, { status: 409 });
+    }
     const cookie = req.headers.get('cookie');
     const serverCtx = extractClientContext(req);
     const ctx = { ...serverCtx, ip: preferIPv6(serverCtx.ip, body.clientIpV6) };
@@ -64,6 +82,9 @@ export async function POST(req: Request) {
       notes: body.notes || '',
       items,
       subtotal,
+      discountPercent: priced.discountPercent,
+      discountAmount: priced.discountAmount,
+      discountLabel: priced.discountLabel,
       shipping,
       total,
       paymentMethod: 'cod',
@@ -118,7 +139,7 @@ export async function POST(req: Request) {
       items: items.map((i: { productId: string; name: string; price: number; qty: number }) => ({
         item_id: i.productId,
         item_name: i.name,
-        price: i.price,
+        ...gaItemPricing(i.price, priced.discountPercent),
         quantity: i.qty,
       })),
     }).catch(console.error);

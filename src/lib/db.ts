@@ -1,4 +1,5 @@
 import { sql } from './pg';
+import type { BlackFridayCampaign } from './pricing';
 
 export type ProductVariant = {
   id: string;
@@ -46,9 +47,14 @@ export type Order = {
   postalCode: string;
   notes: string;
   items: OrderItem[];
-  subtotal: number;
+  subtotal: number; // merchandise before any discount
+  // Offer applied when the order was placed; saved so old orders keep their
+  // original totals if the sale later changes. 0 / '' when none applied.
+  discountPercent: number;
+  discountAmount: number;
+  discountLabel: string;
   shipping: number;
-  total: number;
+  total: number; // subtotal - discountAmount + shipping (what COD collects)
   status: 'pending' | 'dispatched' | 'received' | 'returned';
   paymentMethod: 'cod' | 'bank_transfer';
   deliveryZone: 'inside_dhaka' | 'outside_dhaka';
@@ -62,12 +68,8 @@ export type Order = {
   createdAt: number;
 };
 
-// Delivery charges by zone (Bangladeshi Taka)
-export const DELIVERY_CHARGES = {
-  inside_dhaka: 80,
-  outside_dhaka: 120,
-} as const;
-export type DeliveryZone = keyof typeof DELIVERY_CHARGES;
+// Delivery charges by zone live with the shared pricing so the browser can use them too.
+export { DELIVERY_CHARGES, type DeliveryZone } from './pricing';
 
 export type Customer = {
   id: string;
@@ -209,6 +211,9 @@ function rowToOrder(r: any): Order {
     shippingAddress: r.shipping_address, city: r.city, postalCode: r.postal_code,
     notes: r.notes, items: typeof r.items === 'string' ? JSON.parse(r.items) : r.items,
     subtotal: Number(r.subtotal), shipping: Number(r.shipping), total: Number(r.total),
+    discountPercent: Number(r.discount_percent) || 0,
+    discountAmount: Number(r.discount_amount) || 0,
+    discountLabel: r.discount_label || '',
     status: r.status, paymentMethod: r.payment_method,
     deliveryZone: r.delivery_zone || 'inside_dhaka',
     pathaoConsignmentId: r.pathao_consignment_id || undefined,
@@ -268,6 +273,7 @@ function ready(): Promise<void> {
 
 async function ensureProductionColumns() {
   await ensureProductImagesColumn();
+  await ensureBlackFridayColumns();
   await ensureGalleryTable();
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_consent boolean NOT NULL DEFAULT false`;
   await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_context jsonb`;
@@ -333,12 +339,24 @@ async function ensureSchema() {
   await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS return_fee numeric DEFAULT 100`;
   await ensureProductImagesColumn();
   await ensureGalleryTable();
+  await ensureBlackFridayColumns();
   await seedIfEmpty();
   await migrateStorefrontCatalog();
 }
 
 async function ensureProductImagesColumn() {
   await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS images jsonb DEFAULT '[]'::jsonb`;
+}
+
+// Black Friday: the campaign switch and window live on the site settings row;
+// each order stores the offer it got. Idempotent, so safe on every start.
+async function ensureBlackFridayColumns() {
+  await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS bf_enabled boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS bf_starts_at bigint`;
+  await sql`ALTER TABLE site_content ADD COLUMN IF NOT EXISTS bf_ends_at bigint`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_percent integer NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount numeric NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_label text NOT NULL DEFAULT ''`;
 }
 
 async function ensureGalleryTable() {
@@ -544,8 +562,8 @@ export const db = {
 
     const id = uid('o');
     const { rows: [{ order_number: orderNumber }] } = await sql`
-      INSERT INTO orders (id, order_number, customer_id, customer_name, customer_email, customer_phone, shipping_address, city, postal_code, notes, items, subtotal, shipping, total, status, payment_method, delivery_zone, tracking_consent, tracking_context, created_at)
-      VALUES (${id}, nextval('order_number_seq'), ${customerId}, ${input.customerName}, ${input.customerEmail}, ${input.customerPhone}, ${input.shippingAddress}, ${input.city}, ${input.postalCode}, ${input.notes}, ${JSON.stringify(input.items)}::jsonb, ${input.subtotal}, ${input.shipping}, ${input.total}, ${'pending'}, ${input.paymentMethod}, ${input.deliveryZone}, ${input.trackingConsent ?? false}, ${input.trackingContext ? JSON.stringify(input.trackingContext) : null}::jsonb, ${now})
+      INSERT INTO orders (id, order_number, customer_id, customer_name, customer_email, customer_phone, shipping_address, city, postal_code, notes, items, subtotal, discount_percent, discount_amount, discount_label, shipping, total, status, payment_method, delivery_zone, tracking_consent, tracking_context, created_at)
+      VALUES (${id}, nextval('order_number_seq'), ${customerId}, ${input.customerName}, ${input.customerEmail}, ${input.customerPhone}, ${input.shippingAddress}, ${input.city}, ${input.postalCode}, ${input.notes}, ${JSON.stringify(input.items)}::jsonb, ${input.subtotal}, ${input.discountPercent}, ${input.discountAmount}, ${input.discountLabel}, ${input.shipping}, ${input.total}, ${'pending'}, ${input.paymentMethod}, ${input.deliveryZone}, ${input.trackingConsent ?? false}, ${input.trackingContext ? JSON.stringify(input.trackingContext) : null}::jsonb, ${now})
       RETURNING order_number`;
 
     return { ...input, customerId, id, orderNumber: Number(orderNumber), status: 'pending', createdAt: now };
@@ -759,6 +777,27 @@ export const db = {
     await ready();
     await sql`DELETE FROM gallery_items WHERE id = ${id}`;
     invalidateStorefrontCache();
+  },
+
+  // Black Friday campaign (Admin -> Black Friday). Cached like the rest of the
+  // storefront reads; saving it clears the cache so the change is immediate.
+  async getBlackFridayCampaign(): Promise<BlackFridayCampaign> {
+    return cachedRead('black-friday', async () => {
+      await ready();
+      const { rows } = await sql`SELECT bf_enabled, bf_starts_at, bf_ends_at FROM site_content WHERE id = 1 LIMIT 1`;
+      const r = rows[0];
+      return {
+        enabled: r?.bf_enabled === true,
+        startsAt: r?.bf_starts_at != null ? Number(r.bf_starts_at) : null,
+        endsAt: r?.bf_ends_at != null ? Number(r.bf_ends_at) : null,
+      };
+    });
+  },
+  async updateBlackFridayCampaign(c: BlackFridayCampaign): Promise<BlackFridayCampaign> {
+    await ready();
+    await sql`UPDATE site_content SET bf_enabled=${c.enabled}, bf_starts_at=${c.startsAt}, bf_ends_at=${c.endsAt} WHERE id = 1`;
+    invalidateStorefrontCache();
+    return c;
   },
 
   // content

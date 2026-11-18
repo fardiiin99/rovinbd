@@ -5,21 +5,29 @@ import Link from 'next/link';
 import { formatPrice } from '@/lib/format';
 import { fbqTrack, mirrorToCapi, newEventId, PIXEL_CURRENCY } from '@/lib/pixel';
 import { gtagEvent, GA_CURRENCY } from '@/lib/gtag';
+import { priceCart, DELIVERY_CHARGES, type DeliveryZone } from '@/lib/pricing';
+import PriceBreakdown from '@/components/PriceBreakdown';
 
 type CartItem = {
   productId: string; name: string; price: number; qty: number; image: string; slug: string;
   variantId?: string; variantName?: string;
 };
 
-const DELIVERY = { inside_dhaka: 80, outside_dhaka: 120 } as const;
-type Zone = keyof typeof DELIVERY;
+const DELIVERY = DELIVERY_CHARGES;
+type Zone = DeliveryZone;
 
-export default function CheckoutForm() {
+function lineKey(item: CartItem) {
+  return `${item.productId}::${item.variantId || ''}`;
+}
+
+export default function CheckoutForm({ campaignActive: initialCampaignActive }: { campaignActive: boolean }) {
   const router = useRouter();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [deliveryZone, setDeliveryZone] = useState<Zone>('inside_dhaka');
+  // Starts from the server's campaign state; updated if the server reports a change.
+  const [campaignActive, setCampaignActive] = useState(initialCampaignActive);
   const [form, setForm] = useState({
     customerName: '', customerEmail: '', customerPhone: '',
     shippingAddress: '', city: '', postalCode: '',
@@ -85,9 +93,7 @@ export default function CheckoutForm() {
     }
   }, []);
 
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const shipping = DELIVERY[deliveryZone];
-  const total = subtotal + shipping;
+  const priced = priceCart(cart, DELIVERY[deliveryZone], campaignActive);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,10 +112,26 @@ export default function CheckoutForm() {
           ...form,
           deliveryZone,
           clientIpV6: clientIpV6.current,
+          // Only compared on the server; the server prices the order itself.
+          expectedTotal: priced.total,
           items: cart.map((c) => ({ productId: c.productId, name: c.name, price: c.price, qty: c.qty, image: c.image, variantId: c.variantId, variantName: c.variantName })),
         }),
       });
       const data = await res.json();
+      if (res.status === 409 && data.code === 'PRICE_CHANGED') {
+        // Prices or the sale changed since this page loaded: show the
+        // server's current prices and let the shopper confirm again.
+        const prices: { productId: string; variantId?: string; price: number }[] = Array.isArray(data.prices) ? data.prices : [];
+        const next = cart.map((c) => {
+          const fresh = prices.find((p) => p.productId === c.productId && (p.variantId || '') === (c.variantId || ''));
+          return fresh ? { ...c, price: fresh.price } : c;
+        });
+        setCart(next);
+        localStorage.setItem('cart', JSON.stringify(next));
+        window.dispatchEvent(new Event('cart-updated'));
+        if (typeof data.campaignActive === 'boolean') setCampaignActive(data.campaignActive);
+        throw new Error(data.error);
+      }
       if (!res.ok) throw new Error(data.error || 'Order failed');
       localStorage.removeItem('cart');
       window.dispatchEvent(new Event('cart-updated'));
@@ -184,16 +206,17 @@ export default function CheckoutForm() {
         <h2 className="font-semibold text-lg">Order Summary</h2>
         <div className="mt-4 divide-y divide-stone-100">
           {cart.map((c) => (
-            <div key={c.productId} className="py-2 flex justify-between text-sm">
+            <div key={lineKey(c)} className="py-2 flex justify-between text-sm">
               <span className="truncate pr-2">{c.name} × {c.qty}</span>
               <span className="shrink-0">{formatPrice(c.price * c.qty)}</span>
             </div>
           ))}
         </div>
-        <div className="mt-3 pt-3 border-t border-stone-200 space-y-1.5 text-sm">
-          <div className="flex justify-between"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>
-          <div className="flex justify-between"><span>Delivery ({deliveryZone === 'inside_dhaka' ? 'Inside Dhaka' : 'Outside Dhaka'})</span><span>{formatPrice(shipping)}</span></div>
-          <div className="flex justify-between font-semibold text-base pt-2 border-t border-stone-200"><span>Total</span><span>{formatPrice(total)}</span></div>
+        <div className="mt-3 pt-3 border-t border-stone-200">
+          <PriceBreakdown
+            priced={priced}
+            deliveryLabel={`Delivery (${deliveryZone === 'inside_dhaka' ? 'Inside Dhaka' : 'Outside Dhaka'})`}
+          />
         </div>
         {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
         <button disabled={submitting} className="btn btn-primary w-full mt-5 disabled:opacity-50">

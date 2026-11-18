@@ -25,6 +25,7 @@ export async function notifyTelegram(order: Order): Promise<void> {
     ...order.items.map((i) => `• ${i.name} × ${i.qty} — ${fmt(i.price * i.qty)}`),
     ``,
     `<b>Subtotal:</b> ${fmt(order.subtotal)}`,
+    order.discountAmount > 0 ? `<b>${order.discountLabel || 'Discount'} (${order.discountPercent}%):</b> −${fmt(order.discountAmount)}` : '',
     `<b>Total:</b> ${fmt(order.total)}`,
     `<b>Payment:</b> Cash on Delivery`,
     order.notes ? `\n<b>Notes:</b> ${order.notes}` : '',

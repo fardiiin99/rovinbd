@@ -3,9 +3,11 @@ import { useEffect, useRef } from 'react';
 import { gtagEvent } from '@/lib/gtag';
 import { setPixelMatchData, type PixelMatchData } from '@/lib/pixel';
 import { META_PIXEL_ID } from '@/lib/pixel-config';
+import { gaItemPricing } from '@/lib/pricing';
 
 export default function PixelPurchase({
   value,
+  discountPercent = 0,
   orderId,
   orderNumber,
   contentIds,
@@ -15,6 +17,7 @@ export default function PixelPurchase({
   currency = 'BDT',
 }: {
   value: number;
+  discountPercent?: number;
   orderId: string;
   orderNumber?: number;
   contentIds?: string[];
@@ -66,11 +69,11 @@ export default function PixelPurchase({
         item_id: it.id,
         item_name: it.name,
         item_variant: it.variantName,
-        price: it.price,
+        ...gaItemPricing(it.price, discountPercent),
         quantity: it.qty,
       })),
     });
-  }, [value, currency, orderId, orderNumber, contentIds, numItems, items, matchData]);
+  }, [value, discountPercent, currency, orderId, orderNumber, contentIds, numItems, items, matchData]);
 
   return null;
 }

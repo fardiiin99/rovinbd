@@ -12,6 +12,7 @@ type GA4Item = {
   item_id: string;
   item_name: string;
   price: number;
+  discount?: number; // unit amount off, so price is what was paid
   quantity: number;
 };
 

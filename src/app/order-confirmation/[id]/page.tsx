@@ -39,6 +39,7 @@ export default async function OrderConfirmation({ params }: { params: Promise<{ 
       {justPlaced && (
         <PixelPurchase
           value={order.total}
+          discountPercent={order.discountPercent}
           orderId={order.id}
           orderNumber={order.orderNumber}
           contentIds={order.items.map((it) => it.productId)}
@@ -87,8 +88,17 @@ export default async function OrderConfirmation({ params }: { params: Promise<{ 
             </div>
             <div>
               <div className="flex justify-between"><span>Subtotal</span><span>{formatPrice(order.subtotal)}</span></div>
+              {order.discountAmount > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <span>{order.discountLabel || 'Discount'} ({order.discountPercent}%)</span>
+                  <span>−{formatPrice(order.discountAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-between"><span>Delivery ({order.deliveryZone === 'outside_dhaka' ? 'Outside Dhaka' : 'Inside Dhaka'})</span><span>{formatPrice(order.shipping)}</span></div>
               <div className="flex justify-between font-semibold text-base mt-1 pt-1 border-t border-stone-200"><span>Total</span><span>{formatPrice(order.total)}</span></div>
+              {order.discountAmount > 0 && (
+                <div className="text-green-700 mt-1">You saved {formatPrice(order.discountAmount)}</div>
+              )}
               <div className="text-stone-600 mt-2">Payment: Cash on Delivery</div>
             </div>
           </div>

@@ -3,6 +3,9 @@ import type { Metadata } from 'next';
 import MetaPixel from '@/components/MetaPixel';
 import GAnalytics from '@/components/GAnalytics';
 import { META_PIXEL_ID, HAS_META_PIXEL } from '@/lib/pixel-config';
+import PromoBar from '@/components/PromoBar';
+import { db } from '@/lib/db';
+import { isCampaignActive } from '@/lib/pricing';
 
 export const metadata: Metadata = {
   title: 'Rovin. — Handcrafted Bandanas',
@@ -37,7 +40,9 @@ const PIXEL_IDENTITY_SCRIPT = `var am={};try{am=JSON.parse(localStorage.getItem(
   `try{var fc=new URLSearchParams(location.search).get('fbclid');if(fc&&ck('_fbc').split('.').pop()!==fc)` +
   `document.cookie='_fbc=fb.1.'+Date.now()+'.'+fc+'; Path=/; Max-Age=7776000; SameSite=Lax'}catch(e){}`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // A settings read failing must not take the whole site down; no banner then.
+  const saleActive = await db.getBlackFridayCampaign().then(isCampaignActive).catch(() => false);
   return (
     <html lang="en">
       <head>
@@ -78,6 +83,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </noscript>
         <MetaPixel />
         <GAnalytics />
+        <PromoBar active={saleActive} />
         {children}
       </body>
     </html>

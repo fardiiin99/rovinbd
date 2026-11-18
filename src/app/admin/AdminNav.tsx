@@ -14,6 +14,7 @@ const links = [
   { href: '/admin/banners', label: 'Banners' },
   { href: '/admin/category-tiles', label: 'Category Tiles' },
   { href: '/admin/gallery', label: 'Gallery' },
+  { href: '/admin/black-friday', label: 'Black Friday' },
   { href: '/admin/content', label: 'Site Content' },
 ];
 

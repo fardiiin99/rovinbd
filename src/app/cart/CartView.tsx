@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatPrice } from '@/lib/format';
+import { priceCart, tierMessage, DELIVERY_CHARGES } from '@/lib/pricing';
+import PriceBreakdown from '@/components/PriceBreakdown';
 
 type CartItem = {
   productId: string; name: string; price: number; qty: number; image: string; slug: string;
@@ -12,7 +14,7 @@ function lineKey(item: CartItem) {
   return `${item.productId}::${item.variantId || ''}`;
 }
 
-export default function CartView() {
+export default function CartView({ campaignActive }: { campaignActive: boolean }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -44,7 +46,9 @@ export default function CartView() {
     );
   }
 
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  // Delivery zone is chosen at checkout; show the Inside Dhaka fee here.
+  const priced = priceCart(cart, DELIVERY_CHARGES.inside_dhaka, campaignActive);
+  const message = tierMessage(priced, campaignActive);
 
   return (
     <div className="grid md:grid-cols-3 gap-6">
@@ -77,13 +81,17 @@ export default function CartView() {
       </div>
       <aside className="card p-5 h-fit">
         <h2 className="font-semibold text-lg">Order Summary</h2>
-        <div className="mt-4 space-y-2 text-sm">
-          <div className="flex justify-between"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>
-          <div className="flex justify-between text-stone-600"><span>Delivery</span><span>at checkout</span></div>
-          <div className="text-xs text-stone-500">Inside Dhaka {formatPrice(80)} · Outside Dhaka {formatPrice(120)}</div>
-          <div className="border-t border-stone-200 pt-2 flex justify-between font-semibold text-base">
-            <span>Total</span><span>{formatPrice(subtotal)} <span className="font-normal text-sm text-stone-500">+ delivery</span></span>
+        {message && (
+          <div className="mt-3 rounded-md bg-stone-900 px-3 py-2 text-sm font-medium text-white" role="status" aria-live="polite">
+            {message}
           </div>
+        )}
+        <div className="mt-4">
+          <PriceBreakdown
+            priced={priced}
+            deliveryLabel="Delivery (Inside Dhaka)"
+            deliveryNote={`Outside Dhaka is ${formatPrice(DELIVERY_CHARGES.outside_dhaka)}, chosen at checkout.`}
+          />
         </div>
         <Link href="/checkout" className="btn btn-primary w-full mt-5">Proceed to Checkout</Link>
         <Link href="/shop" className="btn btn-ghost w-full mt-2">Continue Shopping</Link>

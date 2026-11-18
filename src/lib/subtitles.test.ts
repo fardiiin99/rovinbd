@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatTimestamp, formatShort, parseTimestamp, parseSubtitles, clipCues, toSrt, toVtt,
-  cueAt, distributeLines, wrapText, cropFor,
+  cueAt, distributeLines, wrapText, cropFor, outputSize, coverRect,
 } from './subtitles.ts';
 
 test('timestamps format and parse round-trip', () => {
@@ -73,6 +73,21 @@ test('wrapText wraps by width and keeps newlines', () => {
   const measure = (s: string) => s.length;
   assert.deepEqual(wrapText('the quick brown fox', 10, measure), ['the quick', 'brown fox']);
   assert.deepEqual(wrapText('a\nb c', 10, measure), ['a', 'b c']);
+});
+
+test('outputSize gives social sizes from the source resolution', () => {
+  assert.deepEqual(outputSize('9:16', 1920, 1080), { w: 1080, h: 1920 });
+  assert.deepEqual(outputSize('1:1', 1280, 720), { w: 1280, h: 1280 });
+  assert.deepEqual(outputSize('16:9', 3840, 2160), { w: 1920, h: 1080 });
+  assert.deepEqual(outputSize('original', 1281, 721), { w: 1280, h: 720 });
+});
+
+test('coverRect fills the box and pans', () => {
+  const r = coverRect(1920, 1080, 1080, 960);
+  assert.ok(Math.abs(r.sw / r.sh - 1080 / 960) < 1e-9);
+  assert.equal(r.sh, 1080);
+  assert.equal(coverRect(1920, 1080, 1080, 960, -1).sx, 0);
+  assert.ok(Math.abs(coverRect(1920, 1080, 1080, 960, 1).sx + r.sw - 1920) < 1e-9);
 });
 
 test('cropFor centre-crops to the aspect with even output size', () => {

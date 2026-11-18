@@ -2,7 +2,10 @@
 // formatting, text wrapping and crop geometry. No DOM access so it can be tested
 // with Node's built-in runner.
 
-export type Cue = { id: string; start: number; end: number; text: string };
+export type Word = { text: string; start: number; end: number };
+
+/** A subtitle. `words` (absolute times) is set for auto captions and drives word-by-word highlighting. */
+export type Cue = { id: string; start: number; end: number; text: string; words?: Word[] };
 
 let idCounter = 0;
 export function newCueId(): string {
@@ -156,6 +159,31 @@ export const ASPECTS: { value: Aspect; label: string }[] = [
   { value: '1:1', label: '1:1 (Square)' },
   { value: '16:9', label: '16:9 (YouTube)' },
 ];
+
+const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
+
+/**
+ * Output frame size for an aspect: the long side matches the source's long side
+ * (capped at 1920, so a 1080p video gives a 1080×1920 vertical), always even.
+ */
+export function outputSize(aspect: Aspect, srcW: number, srcH: number) {
+  if (aspect === 'original' || !srcW || !srcH) return { w: even(srcW || 2), h: even(srcH || 2) };
+  const [aw, ah] = aspect.split(':').map(Number);
+  const ratio = aw / ah;
+  const long = Math.min(1920, Math.max(srcW, srcH));
+  return ratio < 1 ? { w: even(long * ratio), h: even(long) } : { w: even(long), h: even(long / ratio) };
+}
+
+/** Source rectangle that fills a dstW×dstH box ("cover"), sliding horizontally by panX in [-1, 1]. */
+export function coverRect(srcW: number, srcH: number, dstW: number, dstH: number, panX = 0) {
+  const target = dstW / dstH;
+  let sw = srcW;
+  let sh = srcH;
+  if (srcW / srcH > target) sw = srcH * target;
+  else sh = srcW / target;
+  const pan = Math.max(-1, Math.min(1, panX));
+  return { sx: ((srcW - sw) / 2) * (1 + pan), sy: (srcH - sh) / 2, sw, sh };
+}
 
 /**
  * Centre-crop region of the source for the chosen aspect, plus the output size

@@ -6,6 +6,11 @@ import {
 } from '@/lib/subtitles';
 import { groupCaptions, pickClips, type AutoClip, type Energy } from '@/lib/autoclip';
 import { transcribeFile, WHISPER_MODELS, whisperEngine, type ModelId, type Progress, type SpeechEngine } from './transcribe';
+import { buildTrack, cropFraction, panForCenter, trackX, type FaceSample, type Track } from '@/lib/reframe';
+import { loadMediapipe, scanFaces, type FaceDetectorLoader } from './facetrack';
+
+type FaceScan = { start: number; end: number; samples: FaceSample[] };
+type Range = { start: number; end: number };
 
 type SubStyle = {
   size: number; // % of the shorter output side
@@ -247,13 +252,17 @@ export type ClipperProps = {
   subtitleExport?: 'download' | 'copy';
   /** Speech-to-text engine; defaults to in-browser Whisper. */
   speechEngine?: SpeechEngine;
-  /** When set, speech features are switched off and this explains why. */
-  speechUnavailable?: string;
+  /** When set, speech and face features (which download models) are switched off and this explains why. */
+  modelsUnavailable?: string;
+  /** Face detector; defaults to MediaPipe in the browser. */
+  faceLoader?: FaceDetectorLoader;
 };
 
 export default function Clipper({
-  saveFile = browserSave, subtitleExport = 'download', speechEngine = whisperEngine, speechUnavailable,
+  saveFile = browserSave, subtitleExport = 'download', speechEngine = whisperEngine, modelsUnavailable,
+  faceLoader = loadMediapipe,
 }: ClipperProps = {}) {
+  const speechUnavailable = modelsUnavailable;
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -299,12 +308,19 @@ export default function Clipper({
   const [customMax, setCustomMax] = useState(45);
   const [model, setModel] = useState<ModelId>('Xenova/whisper-base.en');
   const [transcript, setTranscript] = useState<TranscriptState | null>(null);
-  const [busy, setBusy] = useState<'' | 'clips' | 'captions'>('');
+  const [busy, setBusy] = useState<'' | 'clips' | 'captions' | 'faces'>('');
   const [progress, setProgress] = useState<Progress | null>(null);
   const [clips, setClips] = useState<AutoClip[]>([]);
   const [activeClip, setActiveClip] = useState('');
   const [clipResults, setClipResults] = useState<Record<string, Result>>({});
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
+
+  // Auto reframe (face tracking)
+  const [reframe, setReframe] = useState(true);
+  const [faceScans, setFaceScans] = useState<FaceScan[]>([]);
+  const faceScansRef = useRef<FaceScan[]>([]);
+  const [faceProgress, setFaceProgress] = useState<{ value: number; text: string } | null>(null);
+  const faceAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => setMime(pickMime()), []);
 
@@ -328,13 +344,25 @@ export default function Clipper({
 
   const out = useMemo(() => outputSize(aspect, dims.w, dims.h), [aspect, dims]);
 
+  // How much of the source width the crop keeps; face following only matters when it crops.
+  const cropW = useMemo(
+    () => cropFraction(dims.w, dims.h, out.w, layout === 'split' ? Math.round(out.h / 2) : out.h),
+    [dims, out, layout],
+  );
+  const needsReframe = aspect !== 'original' && layout !== 'fit' && cropW < 0.98;
+  const follow = reframe && needsReframe && !modelsUnavailable;
+  const tracks = useMemo(
+    () => faceScans.map((s) => ({ start: s.start, end: s.end, track: buildTrack(s.samples, { cropW }) as Track | null })),
+    [faceScans, cropW],
+  );
+
   // The render loop reads the latest settings through this ref, and repaints when they change.
-  const live = useRef({ cues, style, out, burn, layout, panX, aspect });
+  const live = useRef({ cues, style, out, burn, layout, panX, aspect, tracks, follow });
   const dirty = useRef(true);
   useEffect(() => {
-    live.current = { cues, style, out, burn, layout, panX, aspect };
+    live.current = { cues, style, out, burn, layout, panX, aspect, tracks, follow };
     dirty.current = true;
-  }, [cues, style, out, burn, layout, panX, aspect, bgUrl]);
+  }, [cues, style, out, burn, layout, panX, aspect, bgUrl, tracks, follow]);
 
   useEffect(() => {
     let raf = 0;
@@ -366,9 +394,18 @@ export default function Clipper({
       if (!ctx) return;
       const vw = v.videoWidth;
       const vh = v.videoHeight;
+      // Follow the tracked face where a track covers this moment, else the manual pan.
+      const panAt = (dw: number, dh: number) => {
+        if (L.follow) {
+          const t = v.currentTime;
+          const tr = L.tracks.find((x) => x.track && t >= x.start - 0.05 && t <= x.end + 0.05);
+          if (tr?.track) return panForCenter(trackX(tr.track, t), vw, vh, dw, dh);
+        }
+        return L.panX;
+      };
 
       if (L.aspect === 'original' || L.layout === 'fill') {
-        const r = coverRect(vw, vh, W, H, L.panX);
+        const r = coverRect(vw, vh, W, H, panAt(W, H));
         ctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, W, H);
       } else if (L.layout === 'fit') {
         // Blurred, darkened fill: draw tiny, then scale up with smoothing.
@@ -389,7 +426,7 @@ export default function Clipper({
         ctx.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh);
       } else {
         const half = Math.round(H / 2);
-        const r = coverRect(vw, vh, W, half, L.panX);
+        const r = coverRect(vw, vh, W, half, panAt(W, half));
         ctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, W, half);
         const bg = bgRef.current;
         if (bg && bg.readyState >= 2 && bg.videoWidth) {
@@ -433,6 +470,10 @@ export default function Clipper({
     setClips([]);
     setClipResults({});
     setActiveClip('');
+    faceAbortRef.current?.abort();
+    faceScansRef.current = [];
+    setFaceScans([]);
+    setFaceProgress(null);
     fileRef.current = file;
     setFileName(file.name);
     let saved: Cue[] = [];
@@ -606,6 +647,48 @@ export default function Clipper({
     seekTo(c.start + 0.01);
   };
 
+  const isTracked = (r: Range) =>
+    faceScansRef.current.some((s) => s.start <= r.start + 0.01 && s.end >= r.end - 0.01);
+
+  /** Finds faces in any of these ranges not scanned yet, so the crop can follow them. */
+  const ensureFaces = async (ranges: Range[]): Promise<boolean> => {
+    if (!follow || !videoUrl) return true;
+    const todo = ranges.filter((r) => !isTracked(r));
+    if (!todo.length) return true;
+    const ac = new AbortController();
+    faceAbortRef.current = ac;
+    try {
+      for (let i = 0; i < todo.length; i++) {
+        const r = todo[i];
+        const label = todo.length > 1 ? ` (clip ${i + 1} of ${todo.length})` : '';
+        setFaceProgress({ value: 0, text: `Loading face tracking…${label}` });
+        const samples = await scanFaces(
+          videoUrl, r.start, r.end,
+          (f) => setFaceProgress({ value: f, text: `Following faces${label}… ${Math.round(f * 100)}%` }),
+          ac.signal, faceLoader,
+        );
+        faceScansRef.current = [...faceScansRef.current, { start: r.start, end: r.end, samples }];
+        setFaceScans(faceScansRef.current);
+      }
+      return true;
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return false;
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`Face tracking could not run, so the crop stays where you set it. (${msg})`);
+      setReframe(false);
+      return true;
+    } finally {
+      faceAbortRef.current = null;
+      setFaceProgress(null);
+    }
+  };
+
+  const trackCurrentClip = async () => {
+    setError('');
+    setBusy('faces');
+    try { await ensureFaces([{ start: clipStart, end: clipEnd }]); } finally { setBusy(''); }
+  };
+
   const generateClips = async () => {
     setError('');
     setNotice('');
@@ -622,6 +705,9 @@ export default function Clipper({
       else if (picked.length < clipCount) setNotice(`Only found ${picked.length} good moment(s) of that length. Try a shorter clip length for more.`);
       if (t.words.length) applyAutoCaptions(t.words);
       if (picked[0]) selectClip(picked[0]);
+      setProgress(null);
+      setBusy('faces');
+      await ensureFaces(picked);
     } finally {
       setBusy('');
       setProgress(null);
@@ -642,7 +728,7 @@ export default function Clipper({
     }
   };
 
-  const cancelAuto = () => abortRef.current?.abort();
+  const cancelAuto = () => { abortRef.current?.abort(); faceAbortRef.current?.abort(); };
 
   // ---- export ----
   const ensureAudio = (): AudioRig => {
@@ -723,6 +809,7 @@ export default function Clipper({
     }
     setError('');
     setResult(null);
+    if (!(await ensureFaces([{ start: clipStart, end: clipEnd }]))) return;
     setExporting(true);
     batchCancelRef.current = false;
     const r = await exportRange(clipStart, clipEnd);
@@ -737,6 +824,7 @@ export default function Clipper({
     if (!canExport()) return;
     setError('');
     selectClip(c);
+    if (!(await ensureFaces([c]))) return;
     setExporting(true);
     batchCancelRef.current = false;
     const r = await exportRange(c.start, c.end);
@@ -747,9 +835,10 @@ export default function Clipper({
   const exportAll = async () => {
     if (!canExport()) return;
     setError('');
+    const todo = clips.filter((c) => !clipResults[c.id]);
+    if (!(await ensureFaces(todo))) return;
     setExporting(true);
     batchCancelRef.current = false;
-    const todo = clips.filter((c) => !clipResults[c.id]);
     setBatch({ done: 0, total: todo.length });
     for (let i = 0; i < todo.length; i++) {
       if (batchCancelRef.current) break;
@@ -895,10 +984,10 @@ export default function Clipper({
 
             {busy ? (
               <div className="space-y-2">
-                <ProgressBar value={progress ? (progress.stage === 'audio' ? 0.02 : progress.value) : 0} />
+                <ProgressBar value={faceProgress ? faceProgress.value : progress ? (progress.stage === 'audio' ? 0.02 : progress.value) : 0} />
                 <div className="flex items-center gap-3 text-sm text-stone-600">
-                  <span className="flex-1">{progress?.text ?? 'Starting…'}</span>
-                  <button className="btn btn-outline text-sm py-1.5 px-3" onClick={cancelAuto}>Cancel</button>
+                  <span className="flex-1">{faceProgress?.text ?? progress?.text ?? 'Starting…'}</span>
+                  <button className="btn btn-outline text-sm py-1.5 px-3" onClick={cancelAuto}>{busy === 'faces' ? 'Skip' : 'Cancel'}</button>
                 </div>
               </div>
             ) : (
@@ -1071,7 +1160,37 @@ export default function Clipper({
                     <p className="text-xs text-stone-500 mt-1">Plays muted and looped under your video, like gameplay or satisfying clips.</p>
                   </div>
                 )}
-                {aspect !== 'original' && layout !== 'fit' && (
+                {needsReframe && !modelsUnavailable && (() => {
+                  const cur = tracks.find((x) => x.start <= clipStart + 0.01 && x.end >= clipEnd - 0.01);
+                  return (
+                    <div className="rounded-md border border-stone-200 p-2.5 space-y-2">
+                      <label className="flex items-center gap-2 text-sm font-medium">
+                        <input type="checkbox" checked={reframe} onChange={(e) => setReframe(e.target.checked)} className="accent-brand-600" />
+                        Auto reframe: follow faces
+                      </label>
+                      {reframe && (
+                        faceProgress ? (
+                          <div className="space-y-1">
+                            <ProgressBar value={faceProgress.value} />
+                            <div className="text-xs text-stone-500">{faceProgress.text}</div>
+                          </div>
+                        ) : cur ? (
+                          <p className="text-xs text-stone-600">
+                            {cur.track
+                              ? `Following ${cur.track.cut.filter(Boolean).length ? 'the speaker, with cuts between people' : 'the face'} in this clip.`
+                              : 'No faces found in this clip, so it uses the crop position below.'}
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-xs text-stone-600 flex-1 min-w-[10rem]">Faces are found automatically before export.</p>
+                            <button className="btn btn-outline text-xs py-1 px-2.5" disabled={!!busy || clipLen < 0.5} onClick={trackCurrentClip}>Find faces now</button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  );
+                })()}
+                {aspect !== 'original' && layout !== 'fit' && (!follow || !tracks.some((x) => x.track && x.start <= clipStart + 0.01 && x.end >= clipEnd - 0.01)) && (
                   <div>
                     <label className="label" htmlFor="pan">Crop position (left ↔ right)</label>
                     <input id="pan" type="range" min={-1} max={1} step={0.01} value={panX} onChange={(e) => setPanX(Number(e.target.value))} className="w-full accent-brand-600" />

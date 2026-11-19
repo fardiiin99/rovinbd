@@ -9,6 +9,7 @@ import { transcribeFile, WHISPER_MODELS, whisperEngine, type ModelId, type Progr
 import { buildTrack, cropFraction, panForCenter, trackX, type FaceSample, type Track } from '@/lib/reframe';
 import { loadMediapipe, scanFaces, type FaceDetectorLoader } from './facetrack';
 import { fileNameFromTitle } from '@/lib/videolink';
+import YouTubePoster from './YouTubePoster';
 
 type FaceScan = { start: number; end: number; samples: FaceSample[] };
 type Range = { start: number; end: number };
@@ -368,11 +369,13 @@ export type ClipperProps = {
   faceLoader?: FaceDetectorLoader;
   /** Show "paste a YouTube / TikTok link" (needs the site's server). */
   linkImport?: boolean;
+  /** Show "Post to YouTube Shorts" (needs the site's server). */
+  youtube?: boolean;
 };
 
 export default function Clipper({
   saveFile = browserSave, subtitleExport = 'download', speechEngine = whisperEngine, modelsUnavailable,
-  faceLoader = loadMediapipe, linkImport = true,
+  faceLoader = loadMediapipe, linkImport = true, youtube = true,
 }: ClipperProps = {}) {
   const speechUnavailable = modelsUnavailable;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1519,6 +1522,19 @@ export default function Clipper({
             )}
           </div>
         </>
+      )}
+
+      {/* Always shown, so the channel can be connected before a video is loaded. */}
+      {youtube && (
+        <YouTubePoster
+          outW={out.w}
+          outH={out.h}
+          busy={exporting}
+          items={[
+            ...clips.map((c) => ({ id: c.id, title: c.title, seconds: c.end - c.start, result: clipResults[c.id] })),
+            ...(result ? [{ id: `manual-${result.url}`, title: baseName, seconds: clipLen, result }] : []),
+          ]}
+        />
       )}
     </div>
   );

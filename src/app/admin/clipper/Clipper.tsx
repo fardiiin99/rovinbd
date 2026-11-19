@@ -1531,8 +1531,15 @@ export default function Clipper({
           outH={out.h}
           busy={exporting}
           items={[
-            ...clips.map((c) => ({ id: c.id, title: c.title, seconds: c.end - c.start, result: clipResults[c.id] })),
-            ...(result ? [{ id: `manual-${result.url}`, title: baseName, seconds: clipLen, result }] : []),
+            ...clips.map((c) => ({ id: c.id, title: c.title, text: c.text, seconds: c.end - c.start, result: clipResults[c.id] })),
+            ...(result ? [{
+              id: `manual-${result.url}`,
+              title: baseName,
+              // What is said in the exported range, from its captions (auto or hand-written).
+              text: clipCues(cues, clipStart, clipEnd).map((c) => c.text.trim()).join(' '),
+              seconds: clipLen,
+              result,
+            }] : []),
           ]}
         />
       )}

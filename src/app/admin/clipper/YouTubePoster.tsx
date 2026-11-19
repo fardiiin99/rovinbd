@@ -1,11 +1,14 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notShortReason, planSchedule, scheduleProblem, shortTitle, type Privacy } from '@/lib/shorts';
+import { clipDescription, clipTitle, keywords } from '@/lib/clipmeta';
 
 export type PostItem = {
   id: string;
   title: string;
   seconds: number;
+  /** What is said in the clip; used to write its title, description and hashtags. */
+  text?: string;
   /** The exported video, once it exists. */
   result?: { url: string; ext: string; size: number };
 };
@@ -19,6 +22,8 @@ type Status = {
 type PostState = { state: 'waiting' | 'posting' | 'done' | 'error'; progress: number; url?: string; publishAt?: number | null; error?: string };
 
 const AUTO_KEY = 'clipper:yt-auto';
+const FOOTER_KEY = 'clipper:yt-footer';
+const TAGS_KEY = 'clipper:yt-tags';
 const pad = (n: number) => String(n).padStart(2, '0');
 /** datetime-local value for tomorrow at 18:00 in the browser's time zone. */
 function tomorrowSix() {
@@ -53,9 +58,11 @@ export default function YouTubePoster({ items, outW, outH, busy }: { items: Post
   const [mode, setMode] = useState<'now' | 'spread'>('spread');
   const [firstAt, setFirstAt] = useState(tomorrowSix);
   const [everyHours, setEveryHours] = useState(24);
-  const [description, setDescription] = useState('');
+  const [footer, setFooter] = useState('');
   const [tags, setTags] = useState('');
   const [titles, setTitles] = useState<Record<string, string>>({});
+  const [descs, setDescs] = useState<Record<string, string>>({});
+  const [openDesc, setOpenDesc] = useState('');
   const [posts, setPosts] = useState<Record<string, PostState>>({});
   const [auto, setAuto] = useState(false);
   const [problem, setProblem] = useState('');
@@ -76,7 +83,11 @@ export default function YouTubePoster({ items, outW, outH, busy }: { items: Post
 
   useEffect(() => {
     refresh();
-    try { setAuto(localStorage.getItem(AUTO_KEY) === '1'); } catch { /* ignore */ }
+    try {
+      setAuto(localStorage.getItem(AUTO_KEY) === '1');
+      setFooter(localStorage.getItem(FOOTER_KEY) ?? '');
+      setTags(localStorage.getItem(TAGS_KEY) ?? '');
+    } catch { /* ignore */ }
     // Result of "Connect YouTube" comes back in the address bar.
     const p = new URLSearchParams(window.location.search);
     const yt = p.get('youtube');
@@ -92,15 +103,20 @@ export default function YouTubePoster({ items, outW, outH, busy }: { items: Post
   }, [refresh]);
 
   useEffect(() => { try { localStorage.setItem(AUTO_KEY, auto ? '1' : '0'); } catch { /* ignore */ } }, [auto]);
+  useEffect(() => { try { localStorage.setItem(FOOTER_KEY, footer); localStorage.setItem(TAGS_KEY, tags); } catch { /* ignore */ } }, [footer, tags]);
 
-  const titleOf = (it: PostItem) => titles[it.id] ?? it.title;
   const firstMs = new Date(firstAt).getTime();
   const tagList = tags.split(/[,\s]+/).map((t) => t.replace(/^#/, '')).filter(Boolean);
+  // Written from each clip's own words; anything edited by hand wins.
+  const wordsOf = (it: PostItem) => keywords(it.text || it.title, 5);
+  const titleOf = (it: PostItem) => titles[it.id] ?? ((it.text && clipTitle(it.text)) || it.title);
+  const descOf = (it: PostItem) => descs[it.id] ?? clipDescription(it.text || '', footer, wordsOf(it));
+  const tagsOf = (it: PostItem) => [...wordsOf(it), ...tagList];
 
   /** Posts one item at the given publish time; queued so uploads go one at a time. */
   const post = (it: PostItem, publishAt: number | null) => {
     if (!it.result) return;
-    const meta = { title: titles[it.id] ?? it.title, description, tags: tagList, privacy, publishAt };
+    const meta = { title: titleOf(it), description: descOf(it), tags: tagsOf(it), privacy, publishAt };
     setPosts((p) => ({ ...p, [it.id]: { state: 'waiting', progress: 0, publishAt } }));
     queue.current = queue.current.then(async () => {
       setPosts((p) => ({ ...p, [it.id]: { state: 'posting', progress: 0, publishAt } }));
@@ -210,13 +226,14 @@ export default function YouTubePoster({ items, outW, outH, busy }: { items: Post
               {mode === 'spread' && privacy !== 'public' && <p className="text-xs text-stone-500 mt-1">Scheduled posts go public at their time.</p>}
             </div>
             <div className="md:col-span-2">
-              <label className="label" htmlFor="yt-desc">Description (same for every clip)</label>
-              <textarea id="yt-desc" className="input min-h-[4.5rem] text-sm" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Shop the bandana at rovinbd.com" />
+              <label className="label" htmlFor="yt-desc">Add to every description</label>
+              <textarea id="yt-desc" className="input min-h-[3.5rem] text-sm" value={footer} onChange={(e) => setFooter(e.target.value)} placeholder="Shop the bandana at rovinbd.com" />
+              <p className="text-xs text-stone-500 mt-1">Each clip gets its own description and hashtags written from what is said in it; this line goes between them.</p>
             </div>
             <div>
-              <label className="label" htmlFor="yt-tags">Tags</label>
+              <label className="label" htmlFor="yt-tags">Extra tags for every clip</label>
               <input id="yt-tags" className="input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="bandana, style, fashion" />
-              <p className="text-xs text-stone-500 mt-1">#Shorts is added automatically.</p>
+              <p className="text-xs text-stone-500 mt-1">Added to each clip&apos;s own tags. #Shorts is always added.</p>
             </div>
           </fieldset>
 
@@ -231,7 +248,8 @@ export default function YouTubePoster({ items, outW, outH, busy }: { items: Post
                 const ps = posts[it.id];
                 const long = it.seconds > 180 ? notShortReason(1, 2, it.seconds) : null;
                 return (
-                  <li key={it.id} className="rounded-md border border-stone-200 p-2.5 flex flex-col sm:flex-row sm:items-center gap-2">
+                  <li key={it.id} className="rounded-md border border-stone-200 p-2.5 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                     <input
                       className="input flex-1 text-sm py-1.5"
                       aria-label="YouTube title"
@@ -262,6 +280,37 @@ export default function YouTubePoster({ items, outW, outH, busy }: { items: Post
                         </a>
                       )}
                     </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <span className="text-stone-500 truncate min-w-0" title="Hashtags">
+                        {['#shorts', ...wordsOf(it).map((w) => `#${w}`)].join(' ')}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-brand-700 hover:underline"
+                        aria-expanded={openDesc === it.id}
+                        onClick={() => setOpenDesc(openDesc === it.id ? '' : it.id)}
+                      >
+                        {openDesc === it.id ? 'Hide description' : descs[it.id] !== undefined ? 'Description (edited)' : 'Description'}
+                      </button>
+                    </div>
+                    {openDesc === it.id && (
+                      <div className="space-y-1">
+                        <textarea
+                          aria-label="YouTube description"
+                          className="input min-h-[6rem] text-sm"
+                          maxLength={5000}
+                          value={descOf(it)}
+                          onChange={(e) => setDescs((d) => ({ ...d, [it.id]: e.target.value }))}
+                          disabled={!!ps && ps.state !== 'error'}
+                        />
+                        {descs[it.id] !== undefined && (
+                          <button type="button" className="text-xs text-stone-600 hover:underline" onClick={() => setDescs((d) => { const n = { ...d }; delete n[it.id]; return n; })}>
+                            Go back to the automatic description
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 );
               })}

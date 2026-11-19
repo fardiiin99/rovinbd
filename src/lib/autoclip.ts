@@ -2,6 +2,7 @@
 // so they run in Node tests. Times are seconds on the source video.
 
 import { newCueId, type Cue, type Word } from './subtitles.ts';
+import { clipTitle } from './clipmeta.ts';
 
 export type Sentence = { start: number; end: number; text: string; words: Word[] };
 
@@ -217,7 +218,8 @@ export function pickClips(words: Word[], opts: PickOptions): AutoClip[] {
     // Speech too short for the requested length: use what there is.
     const start = Math.max(0, sents[0].start - 0.15);
     const end = Math.min(duration || Infinity, sents[sents.length - 1].end + 0.35);
-    return [{ id: newCueId(), start, end, score: scoreWindow(sents, energy, overall), title: titleFrom(sents[0].text), text: sents.map((s) => s.text).join(' ') }];
+    const text = sents.map((s) => s.text).join(' ');
+    return [{ id: newCueId(), start, end, score: scoreWindow(sents, energy, overall), title: clipTitle(text) || titleFrom(sents[0].text), text }];
   }
 
   cands.sort((a, b) => b.score - a.score);
@@ -232,7 +234,7 @@ export function pickClips(words: Word[], opts: PickOptions): AutoClip[] {
     start: round2(c.start),
     end: round2(c.end),
     score: Math.max(1, Math.min(99, Math.round(c.score))),
-    title: titleFrom(c.sents[0].text),
+    title: clipTitle(c.sents.map((s) => s.text).join(' ')) || titleFrom(c.sents[0].text),
     text: c.sents.map((s) => s.text).join(' '),
   }));
 }

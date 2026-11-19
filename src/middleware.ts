@@ -40,7 +40,9 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Run on all routes except static assets and Next internals
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:jpg|jpeg|png|gif|svg|webp|ico|css|js|woff|woff2)$).*)',
+    // Run on all routes except static assets and Next internals. The YouTube upload is
+    // skipped too: Next.js cuts request bodies passing through middleware at 10 MB, and
+    // exported Shorts are bigger. That route checks the admin session itself.
+    '/((?!_next/static|_next/image|favicon.ico|api/admin/youtube/upload|.*\\.(?:jpg|jpeg|png|gif|svg|webp|ico|css|js|woff|woff2)$).*)',
   ],
 };

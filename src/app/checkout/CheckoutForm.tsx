@@ -219,8 +219,11 @@ export default function CheckoutForm({ campaignActive: initialCampaignActive }: 
           />
         </div>
         {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
+        {/* Don't label this "Place Order": the pixel has an Event Setup Tool rule that
+            fires a second, value-less Purchase on any click of a "place order" button,
+            which Meta can't deduplicate against the real one (event ID = order ID). */}
         <button disabled={submitting} className="btn btn-primary w-full mt-5 disabled:opacity-50">
-          {submitting ? 'Placing order…' : 'Place Order'}
+          {submitting ? 'Confirming order…' : 'Confirm Order'}
         </button>
       </aside>
     </form>
